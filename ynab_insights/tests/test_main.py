@@ -14,7 +14,7 @@ def test_root_returns_hello_payload() -> None:
     assert "env" in body
 
 
-def test_root_reflects_env_vars(monkeypatch) -> None:
+def test_root_reflects_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_VERSION", "1.2.3")
     monkeypatch.setenv("APP_ENV", "prod")
     response = client.get("/")
