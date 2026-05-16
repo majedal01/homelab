@@ -16,6 +16,14 @@ Personal homelab focused on practicing enterprise software engineering patterns:
 - Docker + Docker Compose
 - GitHub Actions for CI/CD, ghcr.io for images
 
+## Deployment patterns
+- Branch-to-env mapping: `stage` branch deploys to stage, `main` deploys to prod (prod workflow pending).
+- Both envs run as separate Docker Compose stacks on the same Tailscale-accessible VM, in `/home/deploy/stacks/{stage,prod}`. Stage uses host port 8001, prod uses 8002.
+- Stage deploy (`.github/workflows/deploy-stage.yml`) builds and pushes `ghcr.io/majedal01/homelab/ynab_insights:stage-{sha,latest}`, joins the tailnet via Tailscale OAuth, scps the compose file to the VM, and runs `docker compose pull && up -d` over SSH. A `curl /health` smoke check confirms the deploy.
+- Per-env compose files live under `infra/compose/{stage,prod}/`. Each env has its own `.env` on the VM (never committed) with Postgres credentials. The workflow injects `APP_VERSION=<commit sha>` per deploy.
+- GitHub Actions secrets used: `SSH_DEPLOY_KEY`, `VM_HOSTNAME`, `VM_DEPLOY_USER`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`. `GITHUB_TOKEN` (automatic) authenticates ghcr.io pushes.
+- Full details in `docs/deployment.md`.
+
 ## Workflow rules
 - Always work on a feature branch off `main`. Never commit directly to `main`.
 - Keep commits small and atomic — one logical change per commit.
