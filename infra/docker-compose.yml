@@ -1,0 +1,25 @@
+services:
+  app:
+    build:
+      context: ../ynab_insights
+    ports:
+      - "8000:8000"
+    environment:
+      APP_VERSION: "0.1.0"
+      APP_ENV: "stage"
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: homelab
+      POSTGRES_PASSWORD: homelab
+      POSTGRES_DB: homelab
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  pgdata:
