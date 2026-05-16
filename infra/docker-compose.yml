@@ -1,7 +1,7 @@
 services:
   app:
     build:
-      context: ../app
+      context: ../ynab_insights
     ports:
       - "8000:8000"
     environment:
