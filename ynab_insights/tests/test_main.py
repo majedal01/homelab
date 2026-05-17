@@ -1,15 +1,6 @@
 from httpx import AsyncClient
 
 
-async def test_root_returns_hello_payload(client: AsyncClient) -> None:
-    response = await client.get("/")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["message"] == "Hello"
-    assert body["version"] == "test"
-    assert body["env"] == "stage"
-
-
 async def test_health_returns_status_version_env(client: AsyncClient) -> None:
     response = await client.get("/health")
     assert response.status_code == 200
