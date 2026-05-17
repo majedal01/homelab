@@ -45,6 +45,29 @@
 </div>
 
 <section class="bg-white rounded-lg shadow p-4 mt-6">
+    <h2 class="text-lg font-semibold mb-3">Ask</h2>
+    <form class="flex gap-2"
+          hx-post="/_partials/ask"
+          hx-target="#ask-output"
+          hx-swap="innerHTML"
+          hx-indicator="#ask-spinner"
+          hx-disabled-elt="find button">
+        <input type="hidden" name="budget_id" value="{{ selected_budget_id }}">
+        <input type="text" name="question" required minlength="1" maxlength="1000"
+               placeholder="What did I spend most on this month?"
+               class="flex-1 border border-gray-300 rounded px-3 py-2 text-sm">
+        <button type="submit"
+                class="bg-blue-600 text-white text-sm px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+            Ask
+        </button>
+    </form>
+    <div id="ask-spinner" class="htmx-indicator text-sm text-gray-500 mt-2">
+        Thinking...
+    </div>
+    <div id="ask-output"></div>
+</section>
+
+<section class="bg-white rounded-lg shadow p-4 mt-6">
     <h2 class="text-lg font-semibold mb-3">Recent Transactions</h2>
     {% if recent %}
     <div id="transactions">
