@@ -6,7 +6,8 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 
-from app.routers import health, sync
+from app.config import get_settings
+from app.routers import accounts, budgets, categories, health, payees, sync, transactions
 
 
 def _run_migrations() -> None:
@@ -16,13 +17,22 @@ def _run_migrations() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Alembic's env.py uses asyncio.run() internally, which fails from inside
-    # a running event loop (uvicorn in prod, pytest-asyncio in tests). Pushing
-    # the sync upgrade call to a worker thread sidesteps that.
-    await asyncio.to_thread(_run_migrations)
+    # Skip Alembic in tests (sqlite). Tests build the schema via
+    # Base.metadata.create_all on a shared in-memory engine so they can seed
+    # data and have it visible to the routes.
+    if not get_settings().database_url.startswith("sqlite"):
+        # Alembic's env.py uses asyncio.run() internally, which fails from inside
+        # a running event loop (uvicorn in prod). Push to a worker thread to
+        # sidestep that.
+        await asyncio.to_thread(_run_migrations)
     yield
 
 
 app = FastAPI(title="ynab-insights", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(sync.router)
+app.include_router(budgets.router)
+app.include_router(accounts.router)
+app.include_router(categories.router)
+app.include_router(payees.router)
+app.include_router(transactions.router)
