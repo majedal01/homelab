@@ -1,7 +1,7 @@
 <div class="flex justify-between items-baseline mb-3">
     <h3 class="text-sm font-semibold">{{ txn_count }} transactions</h3>
     <div class="font-mono {% if total_cents < 0 %}text-red-600{% endif %}">
-        ${{ "{:,.2f}".format(total_cents / 100) }}
+        {{ total_cents | dollars }}
     </div>
 </div>
 {% if transactions %}
@@ -15,7 +15,7 @@
             </div>
         </div>
         <div class="font-mono whitespace-nowrap {% if t.amount_cents < 0 %}text-red-600{% else %}text-green-600{% endif %}">
-            ${{ "{:,.2f}".format(t.amount_cents / 100) }}
+            {{ t.amount_cents | dollars }}
         </div>
     </div>
     {% endfor %}

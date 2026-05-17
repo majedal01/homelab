@@ -1,11 +1,9 @@
 import logging
 from datetime import date
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.loop import run_agent
@@ -19,6 +17,7 @@ from app.services.queries import (
     spending_by_category,
     transaction_to_response,
 )
+from app.templating import templates
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +25,6 @@ router = APIRouter()
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
-
-_templates_dir = Path(__file__).resolve().parent.parent / "templates"
-templates = Jinja2Templates(directory=str(_templates_dir))
 
 RECENT_PAGE_SIZE = 20
 
