@@ -1,12 +1,14 @@
+import logging
 from datetime import date
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.loop import run_agent
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import Category
@@ -17,6 +19,8 @@ from app.services.queries import (
     spending_by_category,
     transaction_to_response,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -138,6 +142,45 @@ async def partial_category_transactions(
             "total_cents": total_cents,
             "txn_count": len(transactions),
         },
+    )
+
+
+@router.post("/_partials/ask", response_class=HTMLResponse)
+async def partial_ask(
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    question: Annotated[str, Form(min_length=1, max_length=1000)],
+    budget_id: Annotated[str | None, Form()] = None,
+) -> Response:
+    """HTML fragment for the dashboard's ask form. Same agent loop as the
+    `/ask` JSON endpoint; rendered output for HTMX swap."""
+    if settings.anthropic_api_key is None:
+        return templates.TemplateResponse(
+            request,
+            "partials/ask_error.html",
+            {"detail": "ANTHROPIC_API_KEY is not configured"},
+            status_code=503,
+        )
+    try:
+        result = await run_agent(
+            session=session,
+            settings=settings,
+            question=question,
+            budget_id=budget_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ask failed")
+        return templates.TemplateResponse(
+            request,
+            "partials/ask_error.html",
+            {"detail": f"{type(exc).__name__}: {exc}"},
+            status_code=500,
+        )
+    return templates.TemplateResponse(
+        request,
+        "partials/ask_answer.html",
+        {"result": result},
     )
 
 

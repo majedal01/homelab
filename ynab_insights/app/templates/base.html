@@ -6,6 +6,11 @@
     <title>{% block title %}YNAB Insights{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline; }
+        .htmx-request.htmx-indicator { display: inline; }
+    </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
     <header class="bg-white border-b border-gray-200">
