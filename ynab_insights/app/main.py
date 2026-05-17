@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from app.config import get_settings
 from app.routers import (
     accounts,
+    ask,
     budgets,
     categories,
     dashboard,
@@ -55,3 +56,4 @@ app.include_router(accounts.router)
 app.include_router(categories.router)
 app.include_router(payees.router)
 app.include_router(transactions.router)
+app.include_router(ask.router)
