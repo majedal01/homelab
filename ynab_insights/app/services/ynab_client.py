@@ -13,7 +13,7 @@ from types import TracebackType
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -99,7 +99,7 @@ class YNABClient:
         self._client: httpx.AsyncClient | None = None
         self.rate_limit = RateLimitInfo()
 
-    async def __aenter__(self) -> "YNABClient":
+    async def __aenter__(self) -> YNABClient:
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             headers={"Authorization": f"Bearer {self._token}"},

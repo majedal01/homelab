@@ -1,12 +1,16 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends
 
 from app.config import Settings, get_settings
 
 router = APIRouter()
 
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+
 
 @router.get("/")
-def root(settings: Settings = Depends(get_settings)) -> dict[str, str]:
+def root(settings: SettingsDep) -> dict[str, str]:
     return {
         "message": "Hello",
         "version": settings.app_version,

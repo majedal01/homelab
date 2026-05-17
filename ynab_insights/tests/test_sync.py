@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.db import Base
-from app.models import Account, Budget, Category, Payee, Transaction
+from app.models import Account, Budget, Transaction
 from app.services.sync import run_sync
 from app.services.ynab_client import DEFAULT_BASE_URL
 
