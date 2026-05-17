@@ -27,7 +27,11 @@
         <ul class="divide-y divide-gray-100">
             {% for row in monthly_spend %}
             <li class="flex justify-between text-sm py-1.5">
-                <span>{{ row.category_name or "Uncategorized" }}</span>
+                {% if row.category_id %}
+                <a href="/categories/{{ row.category_id }}" class="text-blue-600 hover:underline">{{ row.category_name }}</a>
+                {% else %}
+                <span class="text-gray-500">Uncategorized</span>
+                {% endif %}
                 <span class="font-mono text-red-600">
                     ${{ "{:,.2f}".format(-row.spent_cents / 100) }}
                 </span>

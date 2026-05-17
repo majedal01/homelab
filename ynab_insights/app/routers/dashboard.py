@@ -2,13 +2,14 @@ from datetime import date
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.db import get_session
+from app.models import Category
 from app.services.queries import (
     list_budgets_ordered,
     list_open_accounts,
@@ -72,6 +73,70 @@ async def dashboard_home(
             "recent": recent,
             "has_more": len(recent) == RECENT_PAGE_SIZE,
             "next_offset": RECENT_PAGE_SIZE,
+        },
+    )
+
+
+@router.get("/categories/{category_id}", response_class=HTMLResponse)
+async def category_detail(
+    request: Request,
+    session: SessionDep,
+    category_id: str,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+) -> Response:
+    category = await session.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    today = date.today()
+    end = date_to or today
+    start = date_from or _first_of_month(end)
+
+    rows = await list_transactions(
+        session, category_id=category_id, date_from=start, date_to=end, limit=500
+    )
+    transactions = [transaction_to_response(t) for t in rows]
+    total_cents = sum(t.amount_cents for t in transactions)
+    budgets = await list_budgets_ordered(session)
+
+    return templates.TemplateResponse(
+        request,
+        "category_detail.html",
+        {
+            "category": category,
+            "transactions": transactions,
+            "total_cents": total_cents,
+            "txn_count": len(transactions),
+            "date_from": start,
+            "date_to": end,
+            "budgets": budgets,
+            "selected_budget_id": category.budget_id,
+        },
+    )
+
+
+@router.get("/_partials/category_transactions", response_class=HTMLResponse)
+async def partial_category_transactions(
+    request: Request,
+    session: SessionDep,
+    category_id: Annotated[str, Query()],
+    date_from: Annotated[date, Query()],
+    date_to: Annotated[date, Query()],
+) -> Response:
+    """HTML fragment for the date-range filter on the category drill-down page."""
+    rows = await list_transactions(
+        session, category_id=category_id, date_from=date_from, date_to=date_to, limit=500
+    )
+    transactions = [transaction_to_response(t) for t in rows]
+    total_cents = sum(t.amount_cents for t in transactions)
+    return templates.TemplateResponse(
+        request,
+        "partials/category_transactions.html",
+        {
+            "transactions": transactions,
+            "total_cents": total_cents,
+            "txn_count": len(transactions),
         },
     )
 
