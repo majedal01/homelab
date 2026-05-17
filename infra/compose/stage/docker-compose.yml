@@ -1,9 +1,21 @@
 services:
+  frontend:
+    image: ghcr.io/majedal01/homelab/ynab_insights_frontend:stage-latest
+    pull_policy: always
+    ports:
+      - "8001:3000"
+    environment:
+      NODE_ENV: production
+      BACKEND_URL: http://app:8000
+    depends_on:
+      - app
+    restart: unless-stopped
+
   app:
     image: ghcr.io/majedal01/homelab/ynab_insights:stage-latest
     pull_policy: always
-    ports:
-      - "8001:8000"
+    # No host port mapping — only the frontend talks to FastAPI, over the
+    # compose-internal network at http://app:8000.
     environment:
       APP_ENV: stage
       APP_VERSION: ${APP_VERSION:-unknown}
