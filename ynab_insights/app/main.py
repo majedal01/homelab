@@ -7,6 +7,7 @@ from alembic.config import Config
 from fastapi import FastAPI
 
 from app.config import get_settings
+from app.logging_config import setup_logging
 from app.routers import (
     accounts,
     ask,
@@ -19,6 +20,8 @@ from app.routers import (
     transactions,
 )
 from app.services.scheduler import build_scheduler
+
+setup_logging(get_settings().app_env)
 
 
 def _run_migrations() -> None:
