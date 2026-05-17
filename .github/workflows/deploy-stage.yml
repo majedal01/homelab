@@ -74,3 +74,9 @@ jobs:
           ssh -i ~/.ssh/deploy_key \
             "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
             "curl --fail --max-time 10 --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8001/health"
+
+      - name: Prune dangling images
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
+            "docker image prune -af"
