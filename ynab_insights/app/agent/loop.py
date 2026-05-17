@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.tools import TOOL_REGISTRY
 from app.config import Settings
+from app.services.metrics import counters
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ async def run_agent(
     if settings.anthropic_api_key is None:
         raise RuntimeError("ANTHROPIC_API_KEY is not configured")
 
+    counters.ask_calls += 1
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     tool_specs = [t.to_anthropic_spec() for t in TOOL_REGISTRY.values()]
 
@@ -151,6 +153,7 @@ async def run_agent(
             except Exception as exc:  # noqa: BLE001
                 err = f"{type(exc).__name__}: {exc}"
                 logger.exception("tool %s failed", block.name)
+                counters.tool_errors += 1
                 trace.append(ToolCall(tool=block.name, input=tool_input, output=err, is_error=True))
                 tool_results.append(
                     {

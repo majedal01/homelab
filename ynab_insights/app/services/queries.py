@@ -12,6 +12,12 @@ from sqlalchemy.sql import Select
 
 from app.models import Account, Budget, Category, Payee, Transaction
 from app.schemas import TransactionResponse
+from app.services.cache import TTLCache
+
+# Single shared cache instance for the dashboard's hot queries. 30-second TTL
+# matches our default sync cadence well enough that fresh syncs are visible
+# within a couple of dashboard refreshes.
+_spending_cache: TTLCache[list["CategorySpend"]] = TTLCache(ttl_seconds=30.0)
 
 
 def _exclude_transfers[T: Select[Any]](stmt: T) -> T:
@@ -186,6 +192,23 @@ async def monthly_summary(
         transaction_count=int(count),
         top_categories=all_cats[:5],
     )
+
+
+async def cached_spending_by_category(
+    session: AsyncSession,
+    budget_id: str,
+    start: date,
+    end: date,
+) -> list[CategorySpend]:
+    """Cached wrapper for the dashboard route. Tests of the underlying
+    aggregation use `spending_by_category` directly to bypass the cache."""
+    key = ("spending", budget_id, start.isoformat(), end.isoformat())
+    cached = _spending_cache.get(key)
+    if cached is not None:
+        return cached
+    result = await spending_by_category(session, budget_id, start, end)
+    _spending_cache.set(key, result)
+    return result
 
 
 async def list_categories_for_budget(

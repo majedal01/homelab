@@ -7,6 +7,7 @@ from alembic.config import Config
 from fastapi import FastAPI
 
 from app.config import get_settings
+from app.logging_config import setup_logging
 from app.routers import (
     accounts,
     ask,
@@ -14,11 +15,14 @@ from app.routers import (
     categories,
     dashboard,
     health,
+    metrics,
     payees,
     sync,
     transactions,
 )
 from app.services.scheduler import build_scheduler
+
+setup_logging(get_settings().app_env)
 
 
 def _run_migrations() -> None:
@@ -57,3 +61,4 @@ app.include_router(categories.router)
 app.include_router(payees.router)
 app.include_router(transactions.router)
 app.include_router(ask.router)
+app.include_router(metrics.router)

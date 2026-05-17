@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Account, Budget, Category, Payee, Transaction
+from app.services.metrics import counters
 from app.services.ynab_client import (
     YNABAccount,
     YNABBudget,
@@ -53,7 +54,13 @@ async def run_sync(session: AsyncSession, ynab_token: str) -> SyncResult:
     if _sync_lock.locked():
         raise SyncInProgressError("a sync is already running")
     async with _sync_lock:
-        return await _do_sync(session, ynab_token)
+        try:
+            result = await _do_sync(session, ynab_token)
+        except Exception:
+            counters.sync_failures += 1
+            raise
+        counters.sync_runs += 1
+        return result
 
 
 async def _do_sync(session: AsyncSession, ynab_token: str) -> SyncResult:

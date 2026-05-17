@@ -11,10 +11,10 @@ from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import Category
 from app.services.queries import (
+    cached_spending_by_category,
     list_budgets_ordered,
     list_open_accounts,
     list_transactions,
-    spending_by_category,
     transaction_to_response,
 )
 from app.templating import templates
@@ -54,7 +54,7 @@ async def dashboard_home(
     month_start = _first_of_month(today)
 
     accounts = await list_open_accounts(session, selected)
-    monthly = await spending_by_category(session, selected, month_start, today)
+    monthly = await cached_spending_by_category(session, selected, month_start, today)
     recent_models = await list_transactions(
         session, budget_id=selected, limit=RECENT_PAGE_SIZE, offset=0
     )

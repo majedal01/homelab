@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.loop import AskResult, run_agent
 from app.config import Settings, get_settings
 from app.db import get_session
+from app.services.metrics import counters
 
 router = APIRouter()
 
@@ -30,9 +31,13 @@ async def ask(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ANTHROPIC_API_KEY is not configured",
         )
-    return await run_agent(
-        session=session,
-        settings=settings,
-        question=body.question,
-        budget_id=body.budget_id,
-    )
+    try:
+        return await run_agent(
+            session=session,
+            settings=settings,
+            question=body.question,
+            budget_id=body.budget_id,
+        )
+    except Exception:
+        counters.ask_failures += 1
+        raise

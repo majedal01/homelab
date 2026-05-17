@@ -27,6 +27,19 @@ from sqlalchemy.ext.asyncio import (  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def clear_query_cache() -> AsyncIterator[None]:
+    """The dashboard's spending cache is module-level. Without this, the empty
+    result from an earlier test seeded with no transactions can be returned
+    as a stale hit when a later test hits the same (budget, range) key with
+    different data."""
+    from app.services.queries import _spending_cache
+
+    _spending_cache.clear()
+    yield
+    _spending_cache.clear()
+
+
 @pytest_asyncio.fixture
 async def engine() -> AsyncIterator[AsyncEngine]:
     """In-memory SQLite engine shared between the app and the test session.
