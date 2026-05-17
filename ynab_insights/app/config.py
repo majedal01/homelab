@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     # and for running the app as a one-shot read-only service).
     sync_interval_minutes: int = 30
 
+    # Anthropic agent (Phase 4). API key is required for /ask; without it the
+    # endpoint returns 503 but the rest of the app still boots.
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-haiku-4-5-20251001"
+    ask_max_turns: int = 10
+
     @model_validator(mode="after")
     def _assemble_database_url(self) -> "Settings":
         if self.database_url:
