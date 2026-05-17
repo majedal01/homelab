@@ -1,14 +1,71 @@
-"""Query helpers for the read API."""
+"""Query helpers for the read API and dashboard views."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.models import Transaction
+from app.models import Account, Budget, Category, Transaction
 from app.schemas import TransactionResponse
+
+
+@dataclass(frozen=True)
+class CategorySpend:
+    category_id: str | None
+    category_name: str | None
+    spent_cents: int  # negative; sum of transaction amount_cents where < 0
+
+
+async def list_budgets_ordered(session: AsyncSession) -> Sequence[Budget]:
+    """All budgets sorted by name. For nav and budget switcher."""
+    result = await session.execute(select(Budget).order_by(Budget.name))
+    return result.scalars().all()
+
+
+async def list_open_accounts(session: AsyncSession, budget_id: str) -> Sequence[Account]:
+    """Non-closed accounts for a budget, sorted by name."""
+    stmt = (
+        select(Account)
+        .where(Account.budget_id == budget_id, Account.closed.is_(False))
+        .order_by(Account.name)
+    )
+    result = await session.execute(stmt)
+    return result.scalars().all()
+
+
+async def spending_by_category(
+    session: AsyncSession,
+    budget_id: str,
+    start: date,
+    end: date,
+) -> list[CategorySpend]:
+    """Sum of negative-amount transactions in [start, end] grouped by category.
+    Outflows are negative in YNAB; we keep the sign so callers can render."""
+    stmt = (
+        select(
+            Category.id,
+            Category.name,
+            func.coalesce(func.sum(Transaction.amount_cents), 0).label("total"),
+        )
+        .select_from(Transaction)
+        .outerjoin(Category, Category.id == Transaction.category_id)
+        .where(
+            Transaction.budget_id == budget_id,
+            Transaction.date >= start,
+            Transaction.date <= end,
+            Transaction.amount_cents < 0,
+        )
+        .group_by(Category.id, Category.name)
+        .order_by("total")  # most-negative first = highest spend first
+    )
+    result = await session.execute(stmt)
+    return [
+        CategorySpend(category_id=row.id, category_name=row.name, spent_cents=int(row.total))
+        for row in result.all()
+    ]
 
 
 async def list_transactions(

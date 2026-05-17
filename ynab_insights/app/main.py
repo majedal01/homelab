@@ -7,7 +7,16 @@ from alembic.config import Config
 from fastapi import FastAPI
 
 from app.config import get_settings
-from app.routers import accounts, budgets, categories, health, payees, sync, transactions
+from app.routers import (
+    accounts,
+    budgets,
+    categories,
+    dashboard,
+    health,
+    payees,
+    sync,
+    transactions,
+)
 from app.services.scheduler import build_scheduler
 
 
@@ -38,6 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="ynab-insights", lifespan=lifespan)
+app.include_router(dashboard.router)
 app.include_router(health.router)
 app.include_router(sync.router)
 app.include_router(budgets.router)

@@ -9,15 +9,10 @@ router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-@router.get("/")
-def root(settings: SettingsDep) -> dict[str, str]:
+@router.get("/health")
+def health(settings: SettingsDep) -> dict[str, str]:
     return {
-        "message": "Hello",
+        "status": "ok",
         "version": settings.app_version,
         "env": settings.app_env,
     }
-
-
-@router.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
