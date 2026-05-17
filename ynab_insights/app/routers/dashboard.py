@@ -67,6 +67,21 @@ async def dashboard_home(
     tracking_total = sum(a.balance_cents for a in tracking_accounts)
     monthly = await cached_spending_by_category(session, selected, range_start, range_end)
     trend = await monthly_outflows(session, selected, months=6)
+
+    # Pre-serialize chart inputs into plain dicts/lists so the templates can
+    # `tojson` them safely — CategorySpend is a frozen dataclass and tuple
+    # rows are not JSON-serializable on their own.
+    trend_chart = [
+        {"label": ms.strftime("%Y-%m"), "outflow_dollars": round(abs(cents) / 100, 2)}
+        for ms, cents in trend
+    ]
+    category_chart = [
+        {
+            "name": row.category_name or "Uncategorized",
+            "spent_dollars": round(abs(row.spent_cents) / 100, 2),
+        }
+        for row in monthly
+    ]
     recent_models = await list_transactions(
         session, budget_id=selected, limit=RECENT_PAGE_SIZE, offset=0
     )
@@ -87,7 +102,8 @@ async def dashboard_home(
             "range_end": range_end,
             "month_start": month_start,
             "today": today,
-            "trend": trend,
+            "trend_chart": trend_chart,
+            "category_chart": category_chart,
             "recent": recent,
             "has_more": len(recent) == RECENT_PAGE_SIZE,
             "next_offset": RECENT_PAGE_SIZE,

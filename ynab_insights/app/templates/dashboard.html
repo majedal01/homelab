@@ -109,15 +109,14 @@
 
 <script>
 {
-    const labels = {{ trend | map(attribute=0) | map('string') | list | tojson }};
-    const data = {{ trend | map(attribute=1) | map('abs') | map('float') | list | tojson }};
+    const points = {{ trend_chart | tojson }};
     new Chart(document.getElementById('trend-chart'), {
         type: 'bar',
         data: {
-            labels: labels.map(s => s.slice(0, 7)),  // YYYY-MM
+            labels: points.map(p => p.label),
             datasets: [{
                 label: 'Outflows ($)',
-                data: data.map(c => c / 100),
+                data: points.map(p => p.outflow_dollars),
                 backgroundColor: 'rgba(220, 38, 38, 0.6)',
                 borderColor: 'rgb(220, 38, 38)',
                 borderWidth: 1,
@@ -137,18 +136,17 @@
     });
 }
 
-{% if monthly_spend %}
+{% if category_chart %}
 {
     const donutEl = document.getElementById('category-donut');
-    const all = {{ monthly_spend | list | tojson(default=str) }};
-    // Take top 6 categories; lump the rest as "Other"
+    const all = {{ category_chart | tojson }};
     const top = all.slice(0, 6);
     const rest = all.slice(6);
-    const labels = top.map(r => r.category_name || 'Uncategorized');
-    const data = top.map(r => Math.abs(r.spent_cents) / 100);
+    const labels = top.map(r => r.name);
+    const data = top.map(r => r.spent_dollars);
     if (rest.length) {
         labels.push('Other (' + rest.length + ')');
-        data.push(rest.reduce((acc, r) => acc + Math.abs(r.spent_cents) / 100, 0));
+        data.push(rest.reduce((acc, r) => acc + r.spent_dollars, 0));
     }
     new Chart(donutEl, {
         type: 'doughnut',
