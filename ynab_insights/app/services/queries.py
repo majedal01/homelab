@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,7 @@ from app.models import Account, Budget, Category, Payee, Transaction
 from app.schemas import TransactionResponse
 
 
-def _exclude_transfers(stmt: Select) -> Select:
+def _exclude_transfers[T: Select[Any]](stmt: T) -> T:
     """Filter out transactions whose payee represents the other side of an
     account-to-account transfer. YNAB models transfers as paired transactions
     pointing at a synthetic payee whose `transfer_account_id` is set; those
@@ -171,9 +172,7 @@ async def monthly_summary(
             *base, Transaction.amount_cents < 0
         )
     )
-    count_stmt = _exclude_transfers(
-        select(func.count()).select_from(Transaction).where(*base)
-    )
+    count_stmt = _exclude_transfers(select(func.count()).select_from(Transaction).where(*base))
     inflow = (await session.execute(inflow_stmt)).scalar_one()
     outflow = (await session.execute(outflow_stmt)).scalar_one()
     count = (await session.execute(count_stmt)).scalar_one()
