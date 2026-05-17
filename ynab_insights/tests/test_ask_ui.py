@@ -2,13 +2,16 @@
 form rendered on the dashboard. Agent loop is mocked at the router level."""
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest_asyncio
 from _pytest.monkeypatch import MonkeyPatch
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.loop import AskResult, ToolCall
+from app.models import Budget
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -21,7 +24,18 @@ async def reset_anthropic_key() -> AsyncIterator[None]:
     get_settings().anthropic_api_key = None
 
 
-async def test_dashboard_renders_ask_form(client: AsyncClient) -> None:
+async def test_dashboard_renders_ask_form(db_session: AsyncSession, client: AsyncClient) -> None:
+    # Form only renders when there is at least one budget (otherwise the empty
+    # state template is used).
+    db_session.add(
+        Budget(
+            id="b-1",
+            name="Main",
+            currency="USD",
+            last_modified_on=datetime(2026, 5, 1, tzinfo=UTC),
+        )
+    )
+    await db_session.commit()
     response = await client.get("/")
     body = response.text
     assert 'hx-post="/_partials/ask"' in body
