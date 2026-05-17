@@ -71,5 +71,30 @@ async def dashboard_home(
             "today": today,
             "recent": recent,
             "has_more": len(recent) == RECENT_PAGE_SIZE,
+            "next_offset": RECENT_PAGE_SIZE,
+        },
+    )
+
+
+@router.get("/_partials/transactions", response_class=HTMLResponse)
+async def partial_transactions(
+    request: Request,
+    session: SessionDep,
+    budget_id: Annotated[str, Query()],
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = RECENT_PAGE_SIZE,
+) -> Response:
+    """HTML fragment for HTMX-driven load-more. Returns one page of rows
+    plus another load-more button if there are still more."""
+    rows = await list_transactions(session, budget_id=budget_id, limit=limit, offset=offset)
+    recent = [transaction_to_response(t) for t in rows]
+    return templates.TemplateResponse(
+        request,
+        "partials/transaction_rows.html",
+        {
+            "recent": recent,
+            "selected_budget_id": budget_id,
+            "has_more": len(recent) == limit,
+            "next_offset": offset + limit,
         },
     )

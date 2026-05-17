@@ -42,7 +42,12 @@
 
 <section class="bg-white rounded-lg shadow p-4 mt-6">
     <h2 class="text-lg font-semibold mb-3">Recent Transactions</h2>
-    {# Transactions section comes in the next commit. #}
-    <p class="text-sm text-gray-500">(pending)</p>
+    {% if recent %}
+    <div id="transactions">
+        {% include "partials/transaction_rows.html" %}
+    </div>
+    {% else %}
+    <p class="text-sm text-gray-500">No transactions yet.</p>
+    {% endif %}
 </section>
 {% endblock %}
