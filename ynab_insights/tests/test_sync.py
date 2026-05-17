@@ -1,6 +1,8 @@
 """End-to-end test of the sync orchestrator against a fresh SQLite database
 with the YNAB API mocked via respx."""
 
+from collections.abc import AsyncIterator
+
 import httpx
 import pytest_asyncio
 import respx
@@ -17,7 +19,7 @@ from app.services.ynab_client import DEFAULT_BASE_URL
 
 
 @pytest_asyncio.fixture
-async def session() -> AsyncSession:
+async def session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

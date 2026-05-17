@@ -53,4 +53,6 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    # pydantic-settings reads required fields from env vars at construction;
+    # mypy can't model that and reports them as missing kwargs.
+    return Settings()  # type: ignore[call-arg]
