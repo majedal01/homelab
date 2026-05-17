@@ -1,19 +1,6 @@
-import os
-
 from fastapi import FastAPI
 
-app = FastAPI(title="homelab-app")
+from app.routers import health
 
-
-@app.get("/")
-def root() -> dict[str, str]:
-    return {
-        "message": "Hello",
-        "version": os.getenv("APP_VERSION", "0.1.0"),
-        "env": os.getenv("APP_ENV", "stage"),
-    }
-
-
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+app = FastAPI(title="ynab-insights")
+app.include_router(health.router)
