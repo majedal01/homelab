@@ -5,6 +5,7 @@ Responses are parsed into Pydantic models that mirror only the fields we persist
 Transient errors are retried with exponential backoff. Rate-limit headers are
 tracked so the caller can back off near the YNAB ceiling (200 req/hr per token).
 """
+
 from __future__ import annotations
 
 import logging

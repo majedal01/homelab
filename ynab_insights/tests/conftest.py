@@ -4,6 +4,7 @@ Sets env vars before any app modules are imported so the cached Settings
 picks up test values. Provides an async HTTP client fixture that runs the
 FastAPI lifespan (migration runner) against an in-memory SQLite database.
 """
+
 import os
 
 os.environ.setdefault("APP_ENV", "stage")

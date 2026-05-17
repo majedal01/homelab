@@ -4,6 +4,7 @@ Pulls all YNAB entities for every accessible budget and upserts them into the
 local database. Upserts use SELECT-then-INSERT-or-UPDATE in Python so the same
 code path works against both Postgres (prod) and SQLite (tests).
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel

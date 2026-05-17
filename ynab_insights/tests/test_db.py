@@ -1,4 +1,5 @@
 """Smoke tests for the async engine and session machinery."""
+
 from sqlalchemy import text
 
 from app.db import async_session_maker, engine

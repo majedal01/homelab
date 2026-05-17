@@ -1,5 +1,6 @@
 """End-to-end test of the sync orchestrator against a fresh SQLite database
 with the YNAB API mocked via respx."""
+
 import httpx
 import pytest_asyncio
 import respx

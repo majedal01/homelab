@@ -1,4 +1,5 @@
 """Tests for the YNAB API client, with httpx interactions mocked via respx."""
+
 import httpx
 import pytest
 import respx
