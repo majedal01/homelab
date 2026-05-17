@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.tools import TOOL_REGISTRY
 from app.config import Settings
+from app.services.metrics import counters
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ async def run_agent(
     if settings.anthropic_api_key is None:
         raise RuntimeError("ANTHROPIC_API_KEY is not configured")
 
+    counters.ask_calls += 1
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     tool_specs = [t.to_anthropic_spec() for t in TOOL_REGISTRY.values()]
 
