@@ -2,12 +2,12 @@
 
 ## Branching strategy
 
-| Branch  | Environment | Trigger                          |
-| ------- | ----------- | -------------------------------- |
-| `stage` | stage       | Push to `stage`                  |
-| `main`  | prod        | (to be wired in a follow-up PR)  |
+| Branch  | Environment | Trigger                                |
+| ------- | ----------- | -------------------------------------- |
+| `stage` | stage       | Push to `stage` (auto)                 |
+| `main`  | prod        | Manual `workflow_dispatch` from Actions |
 
-Work flows: feature branch -> PR into `main` -> fast-forward `stage` from `main` to deploy. Promotion to prod happens by merging into `main` (once the prod workflow exists).
+Work flows: feature branch -> PR into `main` (CI gates). Promote to stage by opening a PR from `main` into `stage`; merging auto-deploys via `.github/workflows/deploy-stage.yml`. Promote to prod by running the `Deploy prod` workflow from the Actions UI against `main`. The manual trigger is the intentional human gate before a prod deploy.
 
 ## Hosting
 
@@ -29,6 +29,15 @@ Each stack has its own `.env` file (managed manually on the VM, never committed)
 5. `scp` the env-specific compose file to `/home/deploy/stacks/stage/` on the VM.
 6. SSH into the VM and run `docker compose pull && docker compose up -d` in that folder. `APP_VERSION` is exported inline as the commit SHA so the running container reports the deployed version.
 7. Smoke check: SSH into the VM and `curl http://localhost:8001/health` to confirm the app responds.
+
+## Deploy flow (prod)
+
+Identical to the stage flow above, with these differences:
+
+- Triggered manually via `workflow_dispatch` from the Actions UI, run against `main`.
+- Image tags: `prod-<sha>` and `prod-latest`.
+- Compose stack at `/home/deploy/stacks/prod` on the VM.
+- Smoke check hits `http://localhost:8002/health`.
 
 ## Secrets
 
