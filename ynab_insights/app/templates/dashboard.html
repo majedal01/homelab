@@ -25,7 +25,8 @@
 </section>
 
 <div class="grid gap-6 md:grid-cols-2">
-    <section class="bg-white rounded-lg shadow p-4">
+    <section class="bg-white rounded-lg shadow p-4" data-card-id="accounts">
+        <div class="card-body">
         <div class="flex justify-between items-baseline mb-3">
             <h2 class="text-lg font-semibold">On-budget</h2>
             <span class="font-mono text-sm {% if on_budget_total < 0 %}text-red-600{% else %}text-gray-900{% endif %}">
@@ -64,40 +65,45 @@
             {% endfor %}
         </ul>
         {% endif %}
+        </div>
     </section>
 
-    <section class="bg-white rounded-lg shadow p-4" id="card-trend">
+    <section class="bg-white rounded-lg shadow p-4" data-card-id="trend">
         <h2 class="text-lg font-semibold mb-1">Spending Trend</h2>
-        <p class="text-xs text-gray-500 mb-3">Last 6 months</p>
-        <div class="chart-canvas">
-            <canvas id="trend-chart"></canvas>
+        <div class="card-body">
+            <p class="text-xs text-gray-500 mb-3">Last 6 months</p>
+            <div class="chart-canvas">
+                <canvas id="trend-chart"></canvas>
+            </div>
         </div>
     </section>
 
-    <section class="bg-white rounded-lg shadow p-4">
+    <section class="bg-white rounded-lg shadow p-4" data-card-id="categories">
         <h2 class="text-lg font-semibold mb-1">This Range by Category</h2>
-        <p class="text-xs text-gray-500 mb-3">{{ range_start }} to {{ range_end }}</p>
-        {% if monthly_spend %}
-        <div class="chart-canvas mb-4">
-            <canvas id="category-donut"></canvas>
+        <div class="card-body">
+            <p class="text-xs text-gray-500 mb-3">{{ range_start }} to {{ range_end }}</p>
+            {% if monthly_spend %}
+            <div class="chart-canvas mb-4">
+                <canvas id="category-donut"></canvas>
+            </div>
+            <ul class="divide-y divide-gray-100">
+                {% for row in monthly_spend %}
+                <li class="flex justify-between text-sm py-1.5">
+                    {% if row.category_id %}
+                    <a href="/categories/{{ row.category_id }}" class="text-blue-600 hover:underline">{{ row.category_name }}</a>
+                    {% else %}
+                    <span class="text-gray-500">Uncategorized</span>
+                    {% endif %}
+                    <span class="font-mono text-red-600">
+                        {{ -row.spent_cents | dollars }}
+                    </span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-gray-500">No spending recorded this month yet.</p>
+            {% endif %}
         </div>
-        <ul class="divide-y divide-gray-100">
-            {% for row in monthly_spend %}
-            <li class="flex justify-between text-sm py-1.5">
-                {% if row.category_id %}
-                <a href="/categories/{{ row.category_id }}" class="text-blue-600 hover:underline">{{ row.category_name }}</a>
-                {% else %}
-                <span class="text-gray-500">Uncategorized</span>
-                {% endif %}
-                <span class="font-mono text-red-600">
-                    {{ -row.spent_cents | dollars }}
-                </span>
-            </li>
-            {% endfor %}
-        </ul>
-        {% else %}
-        <p class="text-sm text-gray-500">No spending recorded this month yet.</p>
-        {% endif %}
     </section>
 </div>
 
@@ -176,31 +182,34 @@
 {% endif %}
 </script>
 
-<section class="bg-white rounded-lg shadow p-4">
+<section class="bg-white rounded-lg shadow p-4" data-card-id="ask">
     <h2 class="text-lg font-semibold mb-3">Ask</h2>
-    <form class="flex gap-2"
-          hx-post="/_partials/ask"
-          hx-target="#ask-output"
-          hx-swap="innerHTML"
-          hx-indicator="#ask-spinner"
-          hx-disabled-elt="find button">
-        <input type="hidden" name="budget_id" value="{{ selected_budget_id }}">
-        <input type="text" name="question" required minlength="1" maxlength="1000"
-               placeholder="What did I spend most on this month?"
-               class="flex-1 border border-gray-300 rounded px-3 py-2 text-sm">
-        <button type="submit"
-                class="bg-blue-600 text-white text-sm px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
-            Ask
-        </button>
-    </form>
-    <div id="ask-spinner" class="htmx-indicator text-sm text-gray-500 mt-2">
-        Thinking...
+    <div class="card-body">
+        <form class="flex gap-2"
+              hx-post="/_partials/ask"
+              hx-target="#ask-output"
+              hx-swap="innerHTML"
+              hx-indicator="#ask-spinner"
+              hx-disabled-elt="find button">
+            <input type="hidden" name="budget_id" value="{{ selected_budget_id }}">
+            <input type="text" name="question" required minlength="1" maxlength="1000"
+                   placeholder="What did I spend most on this month?"
+                   class="flex-1 border border-gray-300 rounded px-3 py-2 text-sm">
+            <button type="submit"
+                    class="bg-blue-600 text-white text-sm px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+                Ask
+            </button>
+        </form>
+        <div id="ask-spinner" class="htmx-indicator text-sm text-gray-500 mt-2">
+            Thinking...
+        </div>
+        <div id="ask-output"></div>
     </div>
-    <div id="ask-output"></div>
 </section>
 
-<section class="bg-white rounded-lg shadow p-4 mt-6">
+<section class="bg-white rounded-lg shadow p-4" data-card-id="recent">
     <h2 class="text-lg font-semibold mb-3">Recent Transactions</h2>
+    <div class="card-body">
     {% if recent %}
     <div id="transactions">
         {% include "partials/transaction_rows.html" %}
@@ -208,5 +217,6 @@
     {% else %}
     <p class="text-sm text-gray-500">No transactions yet.</p>
     {% endif %}
+    </div>
 </section>
 {% endblock %}

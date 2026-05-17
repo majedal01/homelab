@@ -35,5 +35,50 @@
     <main class="max-w-6xl mx-auto px-6 py-6 space-y-6">
         {% block content %}{% endblock %}
     </main>
+    <script>
+    // Card visibility toggles persisted in localStorage. Cards opt in by
+    // having a data-card-id attribute; a small toggle button is injected
+    // into their first heading.
+    (function () {
+        const STORAGE_KEY = 'ynab-insights:hidden-cards';
+        function loadHidden() {
+            try { return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')); }
+            catch (_) { return new Set(); }
+        }
+        function saveHidden(hidden) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify([...hidden]));
+        }
+        function applyVisibility(card, hidden) {
+            const id = card.dataset.cardId;
+            if (hidden.has(id)) card.classList.add('card-collapsed');
+            else card.classList.remove('card-collapsed');
+        }
+        function init() {
+            const hidden = loadHidden();
+            document.querySelectorAll('[data-card-id]').forEach((card) => {
+                const heading = card.querySelector('h2');
+                if (heading && !heading.querySelector('.card-toggle')) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'card-toggle ml-2 text-xs text-gray-400 hover:text-gray-700';
+                    btn.title = 'Hide/show this card';
+                    btn.textContent = '−';
+                    btn.addEventListener('click', () => {
+                        const id = card.dataset.cardId;
+                        if (hidden.has(id)) hidden.delete(id);
+                        else hidden.add(id);
+                        saveHidden(hidden);
+                        applyVisibility(card, hidden);
+                        btn.textContent = hidden.has(id) ? '+' : '−';
+                    });
+                    heading.appendChild(btn);
+                    if (hidden.has(card.dataset.cardId)) btn.textContent = '+';
+                }
+                applyVisibility(card, hidden);
+            });
+        }
+        document.addEventListener('DOMContentLoaded', init);
+    })();
+    </script>
 </body>
 </html>
