@@ -116,6 +116,31 @@ async def category_detail(
     )
 
 
+@router.get("/_partials/category_transactions", response_class=HTMLResponse)
+async def partial_category_transactions(
+    request: Request,
+    session: SessionDep,
+    category_id: Annotated[str, Query()],
+    date_from: Annotated[date, Query()],
+    date_to: Annotated[date, Query()],
+) -> Response:
+    """HTML fragment for the date-range filter on the category drill-down page."""
+    rows = await list_transactions(
+        session, category_id=category_id, date_from=date_from, date_to=date_to, limit=500
+    )
+    transactions = [transaction_to_response(t) for t in rows]
+    total_cents = sum(t.amount_cents for t in transactions)
+    return templates.TemplateResponse(
+        request,
+        "partials/category_transactions.html",
+        {
+            "transactions": transactions,
+            "total_cents": total_cents,
+            "txn_count": len(transactions),
+        },
+    )
+
+
 @router.get("/_partials/transactions", response_class=HTMLResponse)
 async def partial_transactions(
     request: Request,
