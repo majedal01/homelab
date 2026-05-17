@@ -10,7 +10,7 @@
             <li class="flex justify-between text-sm py-1.5">
                 <span>{{ a.name }}</span>
                 <span class="font-mono {% if a.balance_cents < 0 %}text-red-600{% else %}text-gray-900{% endif %}">
-                    ${{ "{:,.2f}".format(a.balance_cents / 100) }}
+                    {{ a.balance_cents | dollars }}
                 </span>
             </li>
             {% endfor %}
@@ -33,7 +33,7 @@
                 <span class="text-gray-500">Uncategorized</span>
                 {% endif %}
                 <span class="font-mono text-red-600">
-                    ${{ "{:,.2f}".format(-row.spent_cents / 100) }}
+                    {{ -row.spent_cents | dollars }}
                 </span>
             </li>
             {% endfor %}
