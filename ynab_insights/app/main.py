@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -15,7 +16,10 @@ def _run_migrations() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    _run_migrations()
+    # Alembic's env.py uses asyncio.run() internally, which fails from inside
+    # a running event loop (uvicorn in prod, pytest-asyncio in tests). Pushing
+    # the sync upgrade call to a worker thread sidesteps that.
+    await asyncio.to_thread(_run_migrations)
     yield
 
 
