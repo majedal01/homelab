@@ -7,6 +7,7 @@ code path works against both Postgres (prod) and SQLite (tests).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from pydantic import BaseModel
@@ -26,6 +27,15 @@ from app.services.ynab_client import (
 
 logger = logging.getLogger(__name__)
 
+# Module-level lock so the scheduled sync and an ad-hoc `POST /sync` cannot
+# run concurrently against the same database. Callers should catch
+# `SyncInProgressError` and either skip (scheduler) or surface 409 (HTTP).
+_sync_lock = asyncio.Lock()
+
+
+class SyncInProgressError(RuntimeError):
+    """Raised when a sync is already running."""
+
 
 class SyncResult(BaseModel):
     budgets: int = 0
@@ -36,7 +46,17 @@ class SyncResult(BaseModel):
 
 
 async def run_sync(session: AsyncSession, ynab_token: str) -> SyncResult:
-    """Run a full sync of all budgets accessible to the given token."""
+    """Run a full sync of all budgets accessible to the given token.
+
+    Raises SyncInProgressError if another sync is already in flight.
+    """
+    if _sync_lock.locked():
+        raise SyncInProgressError("a sync is already running")
+    async with _sync_lock:
+        return await _do_sync(session, ynab_token)
+
+
+async def _do_sync(session: AsyncSession, ynab_token: str) -> SyncResult:
     result = SyncResult()
     async with YNABClient(ynab_token) as client:
         for budget in await client.list_budgets():
