@@ -7,7 +7,10 @@ code path works against both Postgres (prod) and SQLite (tests).
 
 from __future__ import annotations
 
+import logging
+
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Account, Budget, Category, Payee, Transaction
@@ -20,6 +23,8 @@ from app.services.ynab_client import (
     YNABTransaction,
     milliunits_to_cents,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SyncResult(BaseModel):
@@ -50,12 +55,41 @@ async def run_sync(session: AsyncSession, ynab_token: str) -> SyncResult:
                 await _upsert_payee(session, payee, budget.id)
                 result.payees += 1
 
+            # Flush so the categories/payees we just added are visible to the
+            # FK-validation queries below.
+            await session.flush()
+            known_category_ids = await _known_ids(session, Category, budget.id)
+            known_payee_ids = await _known_ids(session, Payee, budget.id)
+
             for txn in await client.list_transactions(budget.id):
+                # YNAB returns historical transactions whose category_id or
+                # payee_id may reference entities that have since been deleted
+                # in YNAB. Those entities are not in the current /categories
+                # or /payees responses, so the FK would violate. Nullify the
+                # reference and keep the transaction so amounts and dates are
+                # still recorded.
+                if txn.category_id is not None and txn.category_id not in known_category_ids:
+                    logger.info(
+                        "nullifying orphan category_id %s on txn %s", txn.category_id, txn.id
+                    )
+                    txn.category_id = None
+                if txn.payee_id is not None and txn.payee_id not in known_payee_ids:
+                    logger.info("nullifying orphan payee_id %s on txn %s", txn.payee_id, txn.id)
+                    txn.payee_id = None
                 await _upsert_transaction(session, txn, budget.id)
                 result.transactions += 1
 
     await session.commit()
     return result
+
+
+async def _known_ids(
+    session: AsyncSession,
+    model: type[Category] | type[Payee],
+    budget_id: str,
+) -> set[str]:
+    rows = await session.execute(select(model.id).where(model.budget_id == budget_id))
+    return {row[0] for row in rows.all()}
 
 
 async def _upsert_budget(session: AsyncSession, source: YNABBudget) -> None:

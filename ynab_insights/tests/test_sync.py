@@ -152,3 +152,87 @@ async def test_run_sync_is_idempotent(session: AsyncSession) -> None:
 
     txns = (await session.execute(Transaction.__table__.select())).all()
     assert len(txns) == 1
+
+
+@respx.mock
+async def test_run_sync_nullifies_orphan_category_and_payee_refs(
+    session: AsyncSession,
+) -> None:
+    """Transactions whose category or payee was deleted in YNAB should still
+    persist, with the orphan FK set to NULL."""
+    respx.get(f"{DEFAULT_BASE_URL}/budgets").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "budgets": [
+                        {
+                            "id": "b-1",
+                            "name": "Main",
+                            "currency_format": {"iso_code": "USD"},
+                            "last_modified_on": "2026-05-15T00:00:00+00:00",
+                        }
+                    ]
+                }
+            },
+        )
+    )
+    respx.get(f"{DEFAULT_BASE_URL}/budgets/b-1/accounts").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "accounts": [
+                        {
+                            "id": "a-1",
+                            "name": "Checking",
+                            "type": "checking",
+                            "balance": 0,
+                            "on_budget": True,
+                            "closed": False,
+                        }
+                    ]
+                }
+            },
+        )
+    )
+    # YNAB returns NO categories and NO payees (e.g. they were all deleted).
+    respx.get(f"{DEFAULT_BASE_URL}/budgets/b-1/categories").mock(
+        return_value=httpx.Response(200, json={"data": {"category_groups": []}})
+    )
+    respx.get(f"{DEFAULT_BASE_URL}/budgets/b-1/payees").mock(
+        return_value=httpx.Response(200, json={"data": {"payees": []}})
+    )
+    # Transaction references a category and a payee that no longer exist.
+    respx.get(f"{DEFAULT_BASE_URL}/budgets/b-1/transactions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "transactions": [
+                        {
+                            "id": "t-orphan",
+                            "account_id": "a-1",
+                            "category_id": "c-deleted",
+                            "payee_id": "p-deleted",
+                            "date": "2022-07-31",
+                            "amount": -132000,
+                            "memo": "",
+                            "cleared": "reconciled",
+                            "approved": True,
+                        }
+                    ]
+                }
+            },
+        )
+    )
+
+    result = await run_sync(session, "test-token")
+    assert result.transactions == 1
+
+    txn = await session.get(Transaction, "t-orphan")
+    assert txn is not None
+    assert txn.category_id is None
+    assert txn.payee_id is None
+    assert txn.account_id == "a-1"
+    assert txn.amount_cents == -13200
