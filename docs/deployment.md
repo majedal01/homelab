@@ -2,12 +2,14 @@
 
 ## Branching strategy
 
-| Branch  | Environment | Trigger                                |
-| ------- | ----------- | -------------------------------------- |
-| `stage` | stage       | Push to `stage` (auto)                 |
-| `main`  | prod        | Manual `workflow_dispatch` from Actions |
+Trunk-based. One long-lived branch (`main`); no environment branches.
 
-Work flows: feature branch -> PR into `main` (CI gates). Promote to stage by opening a PR from `main` into `stage`; merging auto-deploys via `.github/workflows/deploy-stage.yml`. Promote to prod by running the `Deploy prod` workflow from the Actions UI against `main`. The manual trigger is the intentional human gate before a prod deploy.
+| Environment | Trigger                                  |
+| ----------- | ---------------------------------------- |
+| stage       | Auto on every push to `main`             |
+| prod        | Manual `workflow_dispatch` against `main` |
+
+Work flows: feature branch -> PR into `main` (CI gates). On merge, stage auto-deploys whatever main now is. Prod waits for a manual trigger; running the `Deploy prod` workflow from the Actions UI deploys whatever main currently is. The manual trigger is the intentional human gate before a prod deploy.
 
 ## Hosting
 
