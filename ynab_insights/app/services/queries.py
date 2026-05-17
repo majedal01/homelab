@@ -3,10 +3,12 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
+from sqlalchemy.sql import Select
 
 from app.models import Account, Budget, Category, Payee, Transaction
 from app.schemas import TransactionResponse
@@ -16,6 +18,19 @@ from app.services.cache import TTLCache
 # matches our default sync cadence well enough that fresh syncs are visible
 # within a couple of dashboard refreshes.
 _spending_cache: TTLCache[list["CategorySpend"]] = TTLCache(ttl_seconds=30.0)
+
+
+def _exclude_transfers[T: Select[Any]](stmt: T) -> T:
+    """Filter out transactions whose payee represents the other side of an
+    account-to-account transfer. YNAB models transfers as paired transactions
+    pointing at a synthetic payee whose `transfer_account_id` is set; those
+    are operational movements of money, not spending or income."""
+    transfer_payee = (
+        select(Payee.id)
+        .where(Payee.id == Transaction.payee_id, Payee.transfer_account_id.is_not(None))
+        .exists()
+    )
+    return stmt.where(~transfer_payee)
 
 
 @dataclass(frozen=True)
@@ -48,8 +63,9 @@ async def spending_by_category(
     start: date,
     end: date,
 ) -> list[CategorySpend]:
-    """Sum of negative-amount transactions in [start, end] grouped by category.
-    Outflows are negative in YNAB; we keep the sign so callers can render."""
+    """Sum of negative-amount transactions in [start, end] grouped by category,
+    excluding account-to-account transfers. Outflows stay negative so callers
+    can render with their own sign convention."""
     stmt = (
         select(
             Category.id,
@@ -67,6 +83,7 @@ async def spending_by_category(
         .group_by(Category.id, Category.name)
         .order_by("total")  # most-negative first = highest spend first
     )
+    stmt = _exclude_transfers(stmt)
     result = await session.execute(stmt)
     return [
         CategorySpend(category_id=row.id, category_name=row.name, spent_cents=int(row.total))
@@ -151,23 +168,20 @@ async def monthly_summary(
         Transaction.date <= end,
     )
 
-    inflow = (
-        await session.execute(
-            select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
-                *base, Transaction.amount_cents > 0
-            )
+    inflow_stmt = _exclude_transfers(
+        select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
+            *base, Transaction.amount_cents > 0
         )
-    ).scalar_one()
-    outflow = (
-        await session.execute(
-            select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
-                *base, Transaction.amount_cents < 0
-            )
+    )
+    outflow_stmt = _exclude_transfers(
+        select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
+            *base, Transaction.amount_cents < 0
         )
-    ).scalar_one()
-    count = (
-        await session.execute(select(func.count()).select_from(Transaction).where(*base))
-    ).scalar_one()
+    )
+    count_stmt = _exclude_transfers(select(func.count()).select_from(Transaction).where(*base))
+    inflow = (await session.execute(inflow_stmt)).scalar_one()
+    outflow = (await session.execute(outflow_stmt)).scalar_one()
+    count = (await session.execute(count_stmt)).scalar_one()
 
     all_cats = await spending_by_category(session, budget_id, start, end)
     return MonthSummary(
