@@ -66,9 +66,17 @@
         {% endif %}
     </section>
 
+    <section class="bg-white rounded-lg shadow p-4" id="card-trend">
+        <h2 class="text-lg font-semibold mb-1">Spending Trend</h2>
+        <p class="text-xs text-gray-500 mb-3">Last 6 months</p>
+        <div class="chart-canvas">
+            <canvas id="trend-chart"></canvas>
+        </div>
+    </section>
+
     <section class="bg-white rounded-lg shadow p-4">
-        <h2 class="text-lg font-semibold mb-1">This Month by Category</h2>
-        <p class="text-xs text-gray-500 mb-3">{{ month_start }} to {{ today }}</p>
+        <h2 class="text-lg font-semibold mb-1">This Range by Category</h2>
+        <p class="text-xs text-gray-500 mb-3">{{ range_start }} to {{ range_end }}</p>
         {% if monthly_spend %}
         <ul class="divide-y divide-gray-100">
             {% for row in monthly_spend %}
@@ -90,7 +98,38 @@
     </section>
 </div>
 
-<section class="bg-white rounded-lg shadow p-4 mt-6">
+<script>
+{
+    const labels = {{ trend | map(attribute=0) | map('string') | list | tojson }};
+    const data = {{ trend | map(attribute=1) | map('abs') | map('float') | list | tojson }};
+    new Chart(document.getElementById('trend-chart'), {
+        type: 'bar',
+        data: {
+            labels: labels.map(s => s.slice(0, 7)),  // YYYY-MM
+            datasets: [{
+                label: 'Outflows ($)',
+                data: data.map(c => c / 100),
+                backgroundColor: 'rgba(220, 38, 38, 0.6)',
+                borderColor: 'rgb(220, 38, 38)',
+                borderWidth: 1,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: (v) => '$' + v.toLocaleString() },
+                },
+            },
+        },
+    });
+}
+</script>
+
+<section class="bg-white rounded-lg shadow p-4">
     <h2 class="text-lg font-semibold mb-3">Ask</h2>
     <form class="flex gap-2"
           hx-post="/_partials/ask"
