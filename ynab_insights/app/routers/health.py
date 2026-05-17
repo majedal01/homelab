@@ -19,5 +19,9 @@ def root(settings: SettingsDep) -> dict[str, str]:
 
 
 @router.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health(settings: SettingsDep) -> dict[str, str]:
+    return {
+        "status": "ok",
+        "version": settings.app_version,
+        "env": settings.app_env,
+    }
