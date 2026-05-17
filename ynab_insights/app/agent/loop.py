@@ -41,7 +41,10 @@ def _build_system_prompt(today_iso: str, default_budget_id: str | None) -> str:
         f"The user's default budget id is `{default_budget_id}`. "
         "Pass this as `budget_id` to tools unless the user clearly means a different budget."
         if default_budget_id
-        else "The user has not specified a default budget. Use list_budgets to discover one if needed."
+        else (
+            "The user has not specified a default budget. "
+            "Use list_budgets to discover one if needed."
+        )
     )
     return (
         "You are an analyst answering questions about the user's personal YNAB budget data.\n\n"
@@ -90,8 +93,8 @@ async def run_agent(
             model=settings.anthropic_model,
             max_tokens=4096,
             system=system,
-            tools=tool_specs,
-            messages=messages,
+            tools=tool_specs,  # type: ignore[arg-type]
+            messages=messages,  # type: ignore[arg-type]
         )
 
         if response.stop_reason == "end_turn":
@@ -124,9 +127,7 @@ async def run_agent(
             tool = TOOL_REGISTRY.get(block.name)
             if tool is None:
                 err = f"unknown tool: {block.name}"
-                trace.append(
-                    ToolCall(tool=block.name, input=tool_input, output=err, is_error=True)
-                )
+                trace.append(ToolCall(tool=block.name, input=tool_input, output=err, is_error=True))
                 tool_results.append(
                     {
                         "type": "tool_result",
@@ -150,9 +151,7 @@ async def run_agent(
             except Exception as exc:  # noqa: BLE001
                 err = f"{type(exc).__name__}: {exc}"
                 logger.exception("tool %s failed", block.name)
-                trace.append(
-                    ToolCall(tool=block.name, input=tool_input, output=err, is_error=True)
-                )
+                trace.append(ToolCall(tool=block.name, input=tool_input, output=err, is_error=True))
                 tool_results.append(
                     {
                         "type": "tool_result",

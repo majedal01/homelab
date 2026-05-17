@@ -29,7 +29,6 @@ from app.services.queries import (
     transaction_to_response,
 )
 
-
 # Input schemas. Keep these minimal; Claude will populate them.
 
 
@@ -38,11 +37,15 @@ class ListBudgetsInput(BaseModel):
 
 
 class ListAccountsInput(BaseModel):
-    budget_id: str | None = Field(default=None, description="If omitted, returns accounts across all budgets.")
+    budget_id: str | None = Field(
+        default=None, description="If omitted, returns accounts across all budgets."
+    )
 
 
 class ListCategoriesInput(BaseModel):
-    budget_id: str | None = Field(default=None, description="If omitted, returns categories across all budgets.")
+    budget_id: str | None = Field(
+        default=None, description="If omitted, returns categories across all budgets."
+    )
 
 
 class SpendingByCategoryInput(BaseModel):
@@ -92,9 +95,7 @@ async def _list_accounts(session: AsyncSession, inp: ListAccountsInput) -> list[
     ]
 
 
-async def _list_categories(
-    session: AsyncSession, inp: ListCategoriesInput
-) -> list[dict[str, Any]]:
+async def _list_categories(session: AsyncSession, inp: ListCategoriesInput) -> list[dict[str, Any]]:
     rows = await list_categories_for_budget(session, inp.budget_id)
     return [
         {"id": r.id, "budget_id": r.budget_id, "name": r.name, "hidden": r.hidden} for r in rows
@@ -139,9 +140,7 @@ async def _transactions(session: AsyncSession, inp: TransactionsInput) -> list[d
     ]
 
 
-async def _monthly_summary(
-    session: AsyncSession, inp: MonthlySummaryInput
-) -> dict[str, Any]:
+async def _monthly_summary(session: AsyncSession, inp: MonthlySummaryInput) -> dict[str, Any]:
     summary = await monthly_summary(session, inp.budget_id, inp.year, inp.month)
     return {
         "year": summary.year,
@@ -180,13 +179,17 @@ class Tool:
 TOOL_REGISTRY: dict[str, Tool] = {
     "list_budgets": Tool(
         name="list_budgets",
-        description="Return all YNAB budgets the user has access to. Use this to discover budget IDs.",
+        description=(
+            "Return all YNAB budgets the user has access to. Use this to discover budget IDs."
+        ),
         input_model=ListBudgetsInput,
         function=_list_budgets,
     ),
     "list_accounts": Tool(
         name="list_accounts",
-        description="List non-closed accounts with their current balance. Optionally filter by budget_id.",
+        description=(
+            "List non-closed accounts with their current balance. Optionally filter by budget_id."
+        ),
         input_model=ListAccountsInput,
         function=_list_accounts,
     ),
