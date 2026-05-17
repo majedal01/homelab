@@ -1,0 +1,25 @@
+services:
+  app:
+    image: ghcr.io/majedal01/homelab/ynab_insights:prod-latest
+    pull_policy: always
+    ports:
+      - "8002:8000"
+    environment:
+      APP_ENV: prod
+      APP_VERSION: ${APP_VERSION:?APP_VERSION is required}
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
