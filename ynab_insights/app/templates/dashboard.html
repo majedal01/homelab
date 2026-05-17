@@ -1,12 +1,41 @@
 {% extends "base.html" %}
 
 {% block content %}
+<section class="bg-white rounded-lg shadow p-3 flex items-end gap-3 flex-wrap">
+    <form method="get" action="/" class="flex items-end gap-3 flex-wrap text-sm">
+        <input type="hidden" name="budget_id" value="{{ selected_budget_id }}">
+        <div>
+            <label class="block text-xs text-gray-500 mb-1" for="date_from">Range start</label>
+            <input type="date" id="date_from" name="date_from" value="{{ range_start }}"
+                   class="border border-gray-300 rounded px-2 py-1">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1" for="date_to">Range end</label>
+            <input type="date" id="date_to" name="date_to" value="{{ range_end }}"
+                   class="border border-gray-300 rounded px-2 py-1">
+        </div>
+        <button type="submit"
+                class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700">
+            Apply
+        </button>
+        <a href="/?budget_id={{ selected_budget_id }}" class="text-xs text-gray-500 hover:text-gray-700">
+            Reset to this month
+        </a>
+    </form>
+</section>
+
 <div class="grid gap-6 md:grid-cols-2">
-    <section class="bg-white rounded-lg shadow p-4">
-        <h2 class="text-lg font-semibold mb-3">Accounts</h2>
-        {% if accounts %}
+    <section class="bg-white rounded-lg shadow p-4" data-card-id="accounts">
+        <div class="card-body">
+        <div class="flex justify-between items-baseline mb-3">
+            <h2 class="text-lg font-semibold">On-budget</h2>
+            <span class="font-mono text-sm {% if on_budget_total < 0 %}text-red-600{% else %}text-gray-900{% endif %}">
+                {{ on_budget_total | dollars }}
+            </span>
+        </div>
+        {% if on_budget_accounts %}
         <ul class="divide-y divide-gray-100">
-            {% for a in accounts %}
+            {% for a in on_budget_accounts %}
             <li class="flex justify-between text-sm py-1.5">
                 <span>{{ a.name }}</span>
                 <span class="font-mono {% if a.balance_cents < 0 %}text-red-600{% else %}text-gray-900{% endif %}">
@@ -16,59 +45,169 @@
             {% endfor %}
         </ul>
         {% else %}
-        <p class="text-sm text-gray-500">No accounts yet. Run a sync.</p>
+        <p class="text-sm text-gray-500">No on-budget accounts.</p>
         {% endif %}
-    </section>
-
-    <section class="bg-white rounded-lg shadow p-4">
-        <h2 class="text-lg font-semibold mb-1">This Month by Category</h2>
-        <p class="text-xs text-gray-500 mb-3">{{ month_start }} to {{ today }}</p>
-        {% if monthly_spend %}
+        {% if tracking_accounts %}
+        <div class="flex justify-between items-baseline mt-4 mb-2">
+            <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tracking</h3>
+            <span class="font-mono text-xs {% if tracking_total < 0 %}text-red-600{% else %}text-gray-700{% endif %}">
+                {{ tracking_total | dollars }}
+            </span>
+        </div>
         <ul class="divide-y divide-gray-100">
-            {% for row in monthly_spend %}
-            <li class="flex justify-between text-sm py-1.5">
-                {% if row.category_id %}
-                <a href="/categories/{{ row.category_id }}" class="text-blue-600 hover:underline">{{ row.category_name }}</a>
-                {% else %}
-                <span class="text-gray-500">Uncategorized</span>
-                {% endif %}
-                <span class="font-mono text-red-600">
-                    {{ -row.spent_cents | dollars }}
+            {% for a in tracking_accounts %}
+            <li class="flex justify-between text-sm py-1.5 text-gray-700">
+                <span>{{ a.name }}</span>
+                <span class="font-mono {% if a.balance_cents < 0 %}text-red-600{% else %}text-gray-700{% endif %}">
+                    {{ a.balance_cents | dollars }}
                 </span>
             </li>
             {% endfor %}
         </ul>
-        {% else %}
-        <p class="text-sm text-gray-500">No spending recorded this month yet.</p>
         {% endif %}
+        </div>
+    </section>
+
+    <section class="bg-white rounded-lg shadow p-4" data-card-id="trend">
+        <h2 class="text-lg font-semibold mb-1">Spending Trend</h2>
+        <div class="card-body">
+            <p class="text-xs text-gray-500 mb-3">Last 6 months</p>
+            <div class="chart-canvas">
+                <canvas id="trend-chart"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <section class="bg-white rounded-lg shadow p-4" data-card-id="categories">
+        <h2 class="text-lg font-semibold mb-1">This Range by Category</h2>
+        <div class="card-body">
+            <p class="text-xs text-gray-500 mb-3">{{ range_start }} to {{ range_end }}</p>
+            {% if monthly_spend %}
+            <div class="chart-canvas mb-4">
+                <canvas id="category-donut"></canvas>
+            </div>
+            <ul class="divide-y divide-gray-100">
+                {% for row in monthly_spend %}
+                <li class="flex justify-between text-sm py-1.5">
+                    {% if row.category_id %}
+                    <a href="/categories/{{ row.category_id }}" class="text-blue-600 hover:underline">{{ row.category_name }}</a>
+                    {% else %}
+                    <span class="text-gray-500">Uncategorized</span>
+                    {% endif %}
+                    <span class="font-mono text-red-600">
+                        {{ -row.spent_cents | dollars }}
+                    </span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-gray-500">No spending recorded this month yet.</p>
+            {% endif %}
+        </div>
     </section>
 </div>
 
-<section class="bg-white rounded-lg shadow p-4 mt-6">
+<script>
+{
+    const points = {{ trend_chart | tojson }};
+    new Chart(document.getElementById('trend-chart'), {
+        type: 'bar',
+        data: {
+            labels: points.map(p => p.label),
+            datasets: [{
+                label: 'Outflows ($)',
+                data: points.map(p => p.outflow_dollars),
+                backgroundColor: 'rgba(220, 38, 38, 0.6)',
+                borderColor: 'rgb(220, 38, 38)',
+                borderWidth: 1,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: (v) => '$' + v.toLocaleString() },
+                },
+            },
+        },
+    });
+}
+
+{% if category_chart %}
+{
+    const donutEl = document.getElementById('category-donut');
+    const all = {{ category_chart | tojson }};
+    const top = all.slice(0, 6);
+    const rest = all.slice(6);
+    const labels = top.map(r => r.name);
+    const data = top.map(r => r.spent_dollars);
+    if (rest.length) {
+        labels.push('Other (' + rest.length + ')');
+        data.push(rest.reduce((acc, r) => acc + r.spent_dollars, 0));
+    }
+    new Chart(donutEl, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: [
+                    '#ef4444', '#f97316', '#eab308', '#22c55e',
+                    '#3b82f6', '#a855f7', '#94a3b8',
+                ],
+                borderWidth: 1,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
+                tooltip: {
+                    callbacks: {
+                        label: (c) => c.label + ': $' + c.parsed.toLocaleString(undefined, {
+                            minimumFractionDigits: 2, maximumFractionDigits: 2,
+                        }),
+                    },
+                },
+            },
+        },
+    });
+}
+{% endif %}
+</script>
+
+<section class="bg-white rounded-lg shadow p-4" data-card-id="ask">
     <h2 class="text-lg font-semibold mb-3">Ask</h2>
-    <form class="flex gap-2"
-          hx-post="/_partials/ask"
-          hx-target="#ask-output"
-          hx-swap="innerHTML"
-          hx-indicator="#ask-spinner"
-          hx-disabled-elt="find button">
-        <input type="hidden" name="budget_id" value="{{ selected_budget_id }}">
-        <input type="text" name="question" required minlength="1" maxlength="1000"
-               placeholder="What did I spend most on this month?"
-               class="flex-1 border border-gray-300 rounded px-3 py-2 text-sm">
-        <button type="submit"
-                class="bg-blue-600 text-white text-sm px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
-            Ask
-        </button>
-    </form>
-    <div id="ask-spinner" class="htmx-indicator text-sm text-gray-500 mt-2">
-        Thinking...
+    <div class="card-body">
+        <form class="flex gap-2"
+              hx-post="/_partials/ask"
+              hx-target="#ask-output"
+              hx-swap="innerHTML"
+              hx-indicator="#ask-spinner"
+              hx-disabled-elt="find button">
+            <input type="hidden" name="budget_id" value="{{ selected_budget_id }}">
+            <input type="text" name="question" required minlength="1" maxlength="1000"
+                   placeholder="What did I spend most on this month?"
+                   class="flex-1 border border-gray-300 rounded px-3 py-2 text-sm">
+            <button type="submit"
+                    class="bg-blue-600 text-white text-sm px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+                Ask
+            </button>
+        </form>
+        <div id="ask-spinner" class="htmx-indicator text-sm text-gray-500 mt-2">
+            Thinking...
+        </div>
+        <div id="ask-output"></div>
     </div>
-    <div id="ask-output"></div>
 </section>
 
-<section class="bg-white rounded-lg shadow p-4 mt-6">
+<section class="bg-white rounded-lg shadow p-4" data-card-id="recent">
     <h2 class="text-lg font-semibold mb-3">Recent Transactions</h2>
+    <div class="card-body">
     {% if recent %}
     <div id="transactions">
         {% include "partials/transaction_rows.html" %}
@@ -76,5 +215,6 @@
     {% else %}
     <p class="text-sm text-gray-500">No transactions yet.</p>
     {% endif %}
+    </div>
 </section>
 {% endblock %}

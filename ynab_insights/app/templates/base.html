@@ -6,21 +6,24 @@
     <title>{% block title %}YNAB Insights{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
         .htmx-indicator { display: none; }
         .htmx-request .htmx-indicator { display: inline; }
         .htmx-request.htmx-indicator { display: inline; }
+        .chart-canvas { max-height: 280px; }
+        .card-collapsed > .card-body { display: none; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
-    <header class="bg-white border-b border-gray-200">
-        <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-            <a href="/" class="text-xl font-semibold">YNAB Insights</a>
+    <header class="bg-white border-b border-gray-200 shadow-sm">
+        <div class="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
+            <a href="/" class="text-xl font-semibold tracking-tight">YNAB Insights</a>
             {% if budgets %}
             <form method="get" action="/" class="flex items-center gap-2 text-sm">
-                <label for="budget_id" class="text-gray-500">Budget:</label>
+                <label for="budget_id" class="text-gray-500">Budget</label>
                 <select name="budget_id" id="budget_id" onchange="this.form.submit()"
-                        class="border border-gray-300 rounded px-2 py-1 bg-white">
+                        class="border border-gray-300 rounded px-2 py-1 bg-white text-sm">
                     {% for b in budgets %}
                     <option value="{{ b.id }}" {% if b.id == selected_budget_id %}selected{% endif %}>{{ b.name }}</option>
                     {% endfor %}
@@ -29,8 +32,53 @@
             {% endif %}
         </div>
     </header>
-    <main class="max-w-6xl mx-auto px-6 py-6">
+    <main class="max-w-6xl mx-auto px-6 py-6 space-y-6">
         {% block content %}{% endblock %}
     </main>
+    <script>
+    // Card visibility toggles persisted in localStorage. Cards opt in by
+    // having a data-card-id attribute; a small toggle button is injected
+    // into their first heading.
+    (function () {
+        const STORAGE_KEY = 'ynab-insights:hidden-cards';
+        function loadHidden() {
+            try { return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')); }
+            catch (_) { return new Set(); }
+        }
+        function saveHidden(hidden) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify([...hidden]));
+        }
+        function applyVisibility(card, hidden) {
+            const id = card.dataset.cardId;
+            if (hidden.has(id)) card.classList.add('card-collapsed');
+            else card.classList.remove('card-collapsed');
+        }
+        function init() {
+            const hidden = loadHidden();
+            document.querySelectorAll('[data-card-id]').forEach((card) => {
+                const heading = card.querySelector('h2');
+                if (heading && !heading.querySelector('.card-toggle')) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'card-toggle ml-2 text-xs text-gray-400 hover:text-gray-700';
+                    btn.title = 'Hide/show this card';
+                    btn.textContent = '−';
+                    btn.addEventListener('click', () => {
+                        const id = card.dataset.cardId;
+                        if (hidden.has(id)) hidden.delete(id);
+                        else hidden.add(id);
+                        saveHidden(hidden);
+                        applyVisibility(card, hidden);
+                        btn.textContent = hidden.has(id) ? '+' : '−';
+                    });
+                    heading.appendChild(btn);
+                    if (hidden.has(card.dataset.cardId)) btn.textContent = '+';
+                }
+                applyVisibility(card, hidden);
+            });
+        }
+        document.addEventListener('DOMContentLoaded', init);
+    })();
+    </script>
 </body>
 </html>
