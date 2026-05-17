@@ -54,6 +54,10 @@ async def dashboard_home(
     month_start = _first_of_month(today)
 
     accounts = await list_open_accounts(session, selected)
+    on_budget_accounts = [a for a in accounts if a.on_budget]
+    tracking_accounts = [a for a in accounts if not a.on_budget]
+    on_budget_total = sum(a.balance_cents for a in on_budget_accounts)
+    tracking_total = sum(a.balance_cents for a in tracking_accounts)
     monthly = await cached_spending_by_category(session, selected, month_start, today)
     recent_models = await list_transactions(
         session, budget_id=selected, limit=RECENT_PAGE_SIZE, offset=0
@@ -66,7 +70,10 @@ async def dashboard_home(
         {
             "budgets": budgets,
             "selected_budget_id": selected,
-            "accounts": accounts,
+            "on_budget_accounts": on_budget_accounts,
+            "tracking_accounts": tracking_accounts,
+            "on_budget_total": on_budget_total,
+            "tracking_total": tracking_total,
             "monthly_spend": monthly,
             "month_start": month_start,
             "today": today,

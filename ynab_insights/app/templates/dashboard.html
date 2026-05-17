@@ -3,10 +3,15 @@
 {% block content %}
 <div class="grid gap-6 md:grid-cols-2">
     <section class="bg-white rounded-lg shadow p-4">
-        <h2 class="text-lg font-semibold mb-3">Accounts</h2>
-        {% if accounts %}
+        <div class="flex justify-between items-baseline mb-3">
+            <h2 class="text-lg font-semibold">On-budget</h2>
+            <span class="font-mono text-sm {% if on_budget_total < 0 %}text-red-600{% else %}text-gray-900{% endif %}">
+                ${{ "{:,.2f}".format(on_budget_total / 100) }}
+            </span>
+        </div>
+        {% if on_budget_accounts %}
         <ul class="divide-y divide-gray-100">
-            {% for a in accounts %}
+            {% for a in on_budget_accounts %}
             <li class="flex justify-between text-sm py-1.5">
                 <span>{{ a.name }}</span>
                 <span class="font-mono {% if a.balance_cents < 0 %}text-red-600{% else %}text-gray-900{% endif %}">
@@ -16,7 +21,25 @@
             {% endfor %}
         </ul>
         {% else %}
-        <p class="text-sm text-gray-500">No accounts yet. Run a sync.</p>
+        <p class="text-sm text-gray-500">No on-budget accounts.</p>
+        {% endif %}
+        {% if tracking_accounts %}
+        <div class="flex justify-between items-baseline mt-4 mb-2">
+            <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tracking</h3>
+            <span class="font-mono text-xs {% if tracking_total < 0 %}text-red-600{% else %}text-gray-700{% endif %}">
+                ${{ "{:,.2f}".format(tracking_total / 100) }}
+            </span>
+        </div>
+        <ul class="divide-y divide-gray-100">
+            {% for a in tracking_accounts %}
+            <li class="flex justify-between text-sm py-1.5 text-gray-700">
+                <span>{{ a.name }}</span>
+                <span class="font-mono {% if a.balance_cents < 0 %}text-red-600{% else %}text-gray-700{% endif %}">
+                    ${{ "{:,.2f}".format(a.balance_cents / 100) }}
+                </span>
+            </li>
+            {% endfor %}
+        </ul>
         {% endif %}
     </section>
 
