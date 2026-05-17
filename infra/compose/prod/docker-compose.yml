@@ -6,7 +6,7 @@ services:
       - "8002:8000"
     environment:
       APP_ENV: prod
-      APP_VERSION: ${APP_VERSION:?APP_VERSION is required}
+      APP_VERSION: ${APP_VERSION:-unknown}
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
