@@ -11,6 +11,7 @@ import os
 os.environ.setdefault("APP_ENV", "stage")
 os.environ.setdefault("APP_VERSION", "test")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+os.environ.setdefault("SYNC_INTERVAL_MINUTES", "0")
 
 from collections.abc import AsyncIterator  # noqa: E402
 
