@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.models import Account, Budget, Category, Transaction
+from app.models import Account, Budget, Category, Payee, Transaction
 from app.schemas import TransactionResponse
 
 
@@ -75,13 +75,18 @@ async def list_transactions(
     account_id: str | None = None,
     category_id: str | None = None,
     payee_id: str | None = None,
+    payee_name_contains: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> Sequence[Transaction]:
     """Fetch transactions with related entities eagerly loaded so callers can
-    build name-embedded responses without N+1 queries."""
+    build name-embedded responses without N+1 queries.
+
+    `payee_name_contains` performs a case-insensitive substring match on the
+    payee name (used by the agent for natural-language payee lookups).
+    """
     stmt = (
         select(Transaction)
         .options(
@@ -99,6 +104,10 @@ async def list_transactions(
         stmt = stmt.where(Transaction.category_id == category_id)
     if payee_id is not None:
         stmt = stmt.where(Transaction.payee_id == payee_id)
+    if payee_name_contains is not None:
+        stmt = stmt.join(Payee, Payee.id == Transaction.payee_id).where(
+            Payee.name.ilike(f"%{payee_name_contains}%")
+        )
     if date_from is not None:
         stmt = stmt.where(Transaction.date >= date_from)
     if date_to is not None:
@@ -107,6 +116,80 @@ async def list_transactions(
 
     result = await session.execute(stmt)
     return result.scalars().all()
+
+
+@dataclass(frozen=True)
+class MonthSummary:
+    year: int
+    month: int
+    total_inflow_cents: int
+    total_outflow_cents: int
+    transaction_count: int
+    top_categories: list[CategorySpend]  # top 5 by spend
+
+
+async def monthly_summary(
+    session: AsyncSession,
+    budget_id: str,
+    year: int,
+    month: int,
+) -> MonthSummary:
+    """Period summary used by the agent's `monthly_summary` tool."""
+    from calendar import monthrange
+
+    start = date(year, month, 1)
+    end = date(year, month, monthrange(year, month)[1])
+    base = (
+        Transaction.budget_id == budget_id,
+        Transaction.date >= start,
+        Transaction.date <= end,
+    )
+
+    inflow = (
+        await session.execute(
+            select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
+                *base, Transaction.amount_cents > 0
+            )
+        )
+    ).scalar_one()
+    outflow = (
+        await session.execute(
+            select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
+                *base, Transaction.amount_cents < 0
+            )
+        )
+    ).scalar_one()
+    count = (
+        await session.execute(select(func.count()).select_from(Transaction).where(*base))
+    ).scalar_one()
+
+    all_cats = await spending_by_category(session, budget_id, start, end)
+    return MonthSummary(
+        year=year,
+        month=month,
+        total_inflow_cents=int(inflow),
+        total_outflow_cents=int(outflow),
+        transaction_count=int(count),
+        top_categories=all_cats[:5],
+    )
+
+
+async def list_categories_for_budget(
+    session: AsyncSession, budget_id: str | None
+) -> Sequence[Category]:
+    stmt = select(Category).order_by(Category.name)
+    if budget_id is not None:
+        stmt = stmt.where(Category.budget_id == budget_id)
+    return (await session.execute(stmt)).scalars().all()
+
+
+async def list_accounts_for_budget(
+    session: AsyncSession, budget_id: str | None
+) -> Sequence[Account]:
+    stmt = select(Account).where(Account.closed.is_(False)).order_by(Account.name)
+    if budget_id is not None:
+        stmt = stmt.where(Account.budget_id == budget_id)
+    return (await session.execute(stmt)).scalars().all()
 
 
 def transaction_to_response(t: Transaction) -> TransactionResponse:
