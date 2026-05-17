@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.routers import accounts, budgets, categories, health, payees, sync, transactions
+from app.services.scheduler import build_scheduler
 
 
 def _run_migrations() -> None:
@@ -25,7 +26,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # a running event loop (uvicorn in prod). Push to a worker thread to
         # sidestep that.
         await asyncio.to_thread(_run_migrations)
-    yield
+
+    scheduler = build_scheduler()
+    if scheduler is not None:
+        scheduler.start()
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="ynab-insights", lifespan=lifespan)
