@@ -153,6 +153,7 @@ async def run_agent(
             except Exception as exc:  # noqa: BLE001
                 err = f"{type(exc).__name__}: {exc}"
                 logger.exception("tool %s failed", block.name)
+                counters.tool_errors += 1
                 trace.append(ToolCall(tool=block.name, input=tool_input, output=err, is_error=True))
                 tool_results.append(
                     {
