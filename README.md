@@ -7,7 +7,7 @@ A personal homelab platform built to practice enterprise software engineering pa
 ```mermaid
 graph TD
     Dev[Developer] -->|git push| GH[GitHub]
-    GH -->|push to stage| GHA1[Deploy stage workflow]
+    GH -->|push to main| GHA1[Deploy stage workflow]
     GH -->|manual trigger on main| GHA2[Deploy prod workflow]
     GHA1 -->|build and push| GHCR[ghcr.io]
     GHA2 -->|build and push| GHCR
@@ -35,9 +35,8 @@ graph TD
 ## Pipeline
 
 1. Feature branch off `main`, push, open a PR. [CI](.github/workflows/ci.yml) runs Ruff, mypy strict, and pytest on every PR.
-2. Merge into `main`.
-3. Promote to stage with a PR from `main` into `stage`. Merging auto-fires [the stage deploy](.github/workflows/deploy-stage.yml): build, push to ghcr.io, scp + ssh deploy to the VM over Tailscale, smoke-check `/health` on :8001.
-4. Promote to prod by manually triggering [the prod deploy](.github/workflows/deploy-prod.yml) from the Actions UI. Same flow as stage, deploys to :8002. The manual step is an intentional human gate.
+2. Merge into `main`. This auto-fires [the stage deploy](.github/workflows/deploy-stage.yml): build, push to ghcr.io, scp + ssh deploy to the VM over Tailscale, smoke-check `/health` on :8001. Stage is always whatever main is.
+3. Promote to prod by manually triggering [the prod deploy](.github/workflows/deploy-prod.yml) from the Actions UI. Same flow as stage, deploys to :8002. The manual step is the intentional human gate before prod.
 
 Full design in [`docs/deployment.md`](docs/deployment.md).
 
