@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     ynab_token: str | None = None
     ynab_budget_id: str | None = None
 
+    # Background sync interval. 0 disables the scheduler (useful for tests
+    # and for running the app as a one-shot read-only service).
+    sync_interval_minutes: int = 30
+
     @model_validator(mode="after")
     def _assemble_database_url(self) -> "Settings":
         if self.database_url:
