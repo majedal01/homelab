@@ -211,6 +211,46 @@ async def cached_spending_by_category(
     return result
 
 
+def _month_starts_back(today: date, n: int) -> list[date]:
+    """List the first-of-month dates for the last `n` months ending in
+    `today`'s month, oldest first."""
+    out: list[date] = []
+    year, month = today.year, today.month
+    for _ in range(n):
+        out.append(date(year, month, 1))
+        if month == 1:
+            year, month = year - 1, 12
+        else:
+            month -= 1
+    out.reverse()
+    return out
+
+
+async def monthly_outflows(
+    session: AsyncSession,
+    budget_id: str,
+    months: int = 6,
+) -> list[tuple[date, int]]:
+    """Total outflow (negative cents) for each of the last `months` calendar
+    months, oldest first. Transfers excluded via `_exclude_transfers`."""
+    from calendar import monthrange
+
+    results: list[tuple[date, int]] = []
+    for ms in _month_starts_back(date.today(), months):
+        me = date(ms.year, ms.month, monthrange(ms.year, ms.month)[1])
+        stmt = _exclude_transfers(
+            select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
+                Transaction.budget_id == budget_id,
+                Transaction.date >= ms,
+                Transaction.date <= me,
+                Transaction.amount_cents < 0,
+            )
+        )
+        outflow = (await session.execute(stmt)).scalar_one()
+        results.append((ms, int(outflow)))
+    return results
+
+
 async def list_categories_for_budget(
     session: AsyncSession, budget_id: str | None
 ) -> Sequence[Category]:

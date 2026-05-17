@@ -15,6 +15,7 @@ from app.services.queries import (
     list_budgets_ordered,
     list_open_accounts,
     list_transactions,
+    monthly_outflows,
     transaction_to_response,
 )
 from app.templating import templates
@@ -39,6 +40,8 @@ async def dashboard_home(
     session: SessionDep,
     settings: SettingsDep,
     budget_id: Annotated[str | None, Query()] = None,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
 ) -> Response:
     budgets = await list_budgets_ordered(session)
     if not budgets:
@@ -51,14 +54,19 @@ async def dashboard_home(
     selected = budget_id or settings.ynab_budget_id or budgets[0].id
 
     today = date.today()
-    month_start = _first_of_month(today)
+    range_end = date_to or today
+    range_start = date_from or _first_of_month(range_end)
+    # The "month_start" / "today" template names are kept for backward compat
+    # with existing template fragments that reference them.
+    month_start = range_start
 
     accounts = await list_open_accounts(session, selected)
     on_budget_accounts = [a for a in accounts if a.on_budget]
     tracking_accounts = [a for a in accounts if not a.on_budget]
     on_budget_total = sum(a.balance_cents for a in on_budget_accounts)
     tracking_total = sum(a.balance_cents for a in tracking_accounts)
-    monthly = await cached_spending_by_category(session, selected, month_start, today)
+    monthly = await cached_spending_by_category(session, selected, range_start, range_end)
+    trend = await monthly_outflows(session, selected, months=6)
     recent_models = await list_transactions(
         session, budget_id=selected, limit=RECENT_PAGE_SIZE, offset=0
     )
@@ -75,8 +83,11 @@ async def dashboard_home(
             "on_budget_total": on_budget_total,
             "tracking_total": tracking_total,
             "monthly_spend": monthly,
+            "range_start": range_start,
+            "range_end": range_end,
             "month_start": month_start,
             "today": today,
+            "trend": trend,
             "recent": recent,
             "has_more": len(recent) == RECENT_PAGE_SIZE,
             "next_offset": RECENT_PAGE_SIZE,

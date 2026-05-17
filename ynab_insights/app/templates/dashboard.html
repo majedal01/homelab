@@ -1,6 +1,29 @@
 {% extends "base.html" %}
 
 {% block content %}
+<section class="bg-white rounded-lg shadow p-3 flex items-end gap-3 flex-wrap">
+    <form method="get" action="/" class="flex items-end gap-3 flex-wrap text-sm">
+        <input type="hidden" name="budget_id" value="{{ selected_budget_id }}">
+        <div>
+            <label class="block text-xs text-gray-500 mb-1" for="date_from">Range start</label>
+            <input type="date" id="date_from" name="date_from" value="{{ range_start }}"
+                   class="border border-gray-300 rounded px-2 py-1">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1" for="date_to">Range end</label>
+            <input type="date" id="date_to" name="date_to" value="{{ range_end }}"
+                   class="border border-gray-300 rounded px-2 py-1">
+        </div>
+        <button type="submit"
+                class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700">
+            Apply
+        </button>
+        <a href="/?budget_id={{ selected_budget_id }}" class="text-xs text-gray-500 hover:text-gray-700">
+            Reset to this month
+        </a>
+    </form>
+</section>
+
 <div class="grid gap-6 md:grid-cols-2">
     <section class="bg-white rounded-lg shadow p-4">
         <div class="flex justify-between items-baseline mb-3">
