@@ -1,13 +1,13 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.loop import AskResult, run_agent
+from app.agent.stream import stream_agent
 from app.config import Settings, get_settings
 from app.db import get_session
-from app.services.metrics import counters
 
 router = APIRouter()
 
@@ -16,28 +16,43 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 class AskRequest(BaseModel):
+    """Streaming ask request.
+
+    `history` is the prior conversation in Anthropic message format.
+    The frontend persists this in sessionStorage and posts it on every
+    request; the backend stays stateless.
+    """
+
     question: str = Field(min_length=1, max_length=1000)
     budget_id: str | None = None
+    history: list[dict[str, Any]] = Field(default_factory=list)
 
 
-@router.post("/ask", response_model=AskResult)
+@router.post("/ask")
 async def ask(
     body: AskRequest,
     session: SessionDep,
     settings: SettingsDep,
-) -> AskResult:
+) -> StreamingResponse:
     if settings.anthropic_api_key is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ANTHROPIC_API_KEY is not configured",
         )
-    try:
-        return await run_agent(
-            session=session,
-            settings=settings,
-            question=body.question,
-            budget_id=body.budget_id,
-        )
-    except Exception:
-        counters.ask_failures += 1
-        raise
+    generator = stream_agent(
+        session=session,
+        settings=settings,
+        question=body.question,
+        budget_id=body.budget_id,
+        history=body.history,
+    )
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={
+            # Disable buffering for any reverse proxies sitting in front.
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
