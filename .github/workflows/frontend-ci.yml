@@ -3,12 +3,12 @@ name: Frontend CI
 on:
   pull_request:
     paths:
-      - "frontend/**"
+      - "ynab_insights/frontend/**"
       - ".github/workflows/frontend-ci.yml"
   push:
     branches: [main]
     paths:
-      - "frontend/**"
+      - "ynab_insights/frontend/**"
       - ".github/workflows/frontend-ci.yml"
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend
+        working-directory: ynab_insights/frontend
     steps:
       - name: Checkout
         uses: actions/checkout@v4

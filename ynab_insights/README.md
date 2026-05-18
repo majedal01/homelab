@@ -52,19 +52,23 @@ These are tradeoffs called in the foundation PR. Each can be revisited:
 
 ## Local development
 
+Backend-only loop (unit tests, type-checking):
+
 ```bash
 cd ynab_insights
 pip install -e ".[dev]"
 pytest
 ```
 
-To run the service against a real Postgres locally, use the root infra stack:
+Full stack with Postgres and the Next.js frontend, source bind-mounted with
+hot reload:
 
 ```bash
-cd ../infra
-cp .env.example .env
-# edit .env
-docker compose up
+cp infra/compose/dev/.env.example infra/compose/dev/.env
+# edit .env; fill in optional YNAB_TOKEN, ANTHROPIC_API_KEY
+docker compose -f infra/compose/dev/docker-compose.yml up
 ```
 
-The app is at `http://localhost:8000`. Deployment details: [`../docs/deployment.md`](../docs/deployment.md).
+Frontend at `http://localhost:3000`, FastAPI at `http://localhost:8000`.
+Deployment details: [`../docs/deployment.md`](../docs/deployment.md). Design
+notes: [`DESIGN.md`](DESIGN.md). Frontend code: [`frontend/`](frontend/).

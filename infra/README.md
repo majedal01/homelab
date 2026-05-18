@@ -1,9 +1,14 @@
-# infra - Docker Compose & deployment configs
+# infra
 
-## Local setup
+Per-environment Docker Compose stacks.
 
-Copy `.env.example` to `.env` and fill in real values before running `docker compose up`:
+| Folder           | Use                                                       |
+| ---------------- | --------------------------------------------------------- |
+| `compose/dev/`   | Local dev: bind-mounted source, hot reload, no ghcr pulls |
+| `compose/stage/` | Stage stack deployed to the VM at port 8001               |
+| `compose/prod/`  | Prod stack deployed to the VM at port 8002                |
 
-    cp .env.example .env
-    # edit .env with real credentials
-    docker compose up
+Each folder owns its `docker-compose.yml` and `.env.example`. On the VM, the
+real `.env` lives next to the compose file and is never committed.
+
+See [`../docs/deployment.md`](../docs/deployment.md) for the CD flow.
