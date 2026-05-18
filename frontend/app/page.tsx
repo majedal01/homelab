@@ -39,10 +39,15 @@ export default async function DashboardPage() {
     ),
   ]);
 
-  const onBudget = accountsAll.filter((a) => a.on_budget && !a.closed);
-  const tracking = accountsAll.filter((a) => !a.on_budget && !a.closed);
+  const open = accountsAll.filter((a) => !a.closed);
+  const onBudget = open.filter((a) => a.on_budget);
+  const tracking = open.filter((a) => !a.on_budget);
+  const assets = tracking.filter((a) => a.balance_cents >= 0);
+  const liabilities = tracking.filter((a) => a.balance_cents < 0);
   const onBudgetTotal = onBudget.reduce((s, a) => s + a.balance_cents, 0);
-  const trackingTotal = tracking.reduce((s, a) => s + a.balance_cents, 0);
+  const assetsTotal = assets.reduce((s, a) => s + a.balance_cents, 0);
+  const liabilitiesTotal = liabilities.reduce((s, a) => s + a.balance_cents, 0);
+  const netWorth = open.reduce((s, a) => s + a.balance_cents, 0);
 
   // Aggregate this-month spending by category from the wider transaction set.
   // A proper /reports endpoint replaces this client-side roll-up in v2.2.
@@ -57,6 +62,9 @@ export default async function DashboardPage() {
   const byCategory = new Map<string, CategorySpendRow>();
   for (const t of monthly) {
     if (t.amount_cents >= 0) continue;
+    // Transfers between accounts aren't spending. The backend exposes
+    // transfer_account_id from the joined Payee; non-null = it's a transfer.
+    if (t.transfer_account_id) continue;
     const key = t.category_id ?? "__uncategorized__";
     const entry = byCategory.get(key) ?? {
       category_id: t.category_id,
@@ -72,93 +80,63 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-baseline justify-between">
-              <CardTitle>On-budget</CardTitle>
-              <span className="font-mono text-base font-semibold tabular-nums">
-                {formatDollars(onBudgetTotal)}
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {onBudget.length ? (
-              <ul className="divide-y divide-border">
-                {onBudget.map((a) => (
-                  <li key={a.id} className="flex justify-between py-2 text-sm">
-                    <span>{a.name}</span>
-                    <span
-                      className={`font-mono ${a.balance_cents < 0 ? "text-destructive" : ""}`}
-                    >
-                      {formatDollars(a.balance_cents)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">No on-budget accounts.</p>
-            )}
-            {tracking.length > 0 && (
-              <>
-                <div className="mt-4 flex items-baseline justify-between">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Tracking
-                  </h3>
-                  <span className="font-mono text-sm font-semibold tabular-nums text-muted-foreground">
-                    {formatDollars(trackingTotal)}
-                  </span>
-                </div>
-                <ul className="mt-1 divide-y divide-border">
-                  {tracking.map((a) => (
-                    <li key={a.id} className="flex justify-between py-2 text-sm text-muted-foreground">
-                      <span>{a.name}</span>
-                      <span className="font-mono">{formatDollars(a.balance_cents)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </CardContent>
-        </Card>
+      <Card>
+        <CardContent className="flex items-baseline justify-between p-6">
+          <span className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+            Net Worth
+          </span>
+          <span
+            className={`font-mono text-2xl font-semibold tabular-nums ${
+              netWorth < 0 ? "text-destructive" : ""
+            }`}
+          >
+            {formatDollars(netWorth)}
+          </span>
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle>This Month by Category</CardTitle>
-            <p className="text-xs text-muted-foreground">{from} to {to}</p>
-          </CardHeader>
-          <CardContent>
-            {monthlySpend.length ? (
-              <ul className="divide-y divide-border">
-                {monthlySpend.map((row) => (
-                  <li
-                    key={row.category_id ?? "__uncat__"}
-                    className="flex justify-between py-2 text-sm"
-                  >
-                    {row.category_id ? (
-                      <Link
-                        href={`/categories?id=${row.category_id}`}
-                        className="text-primary hover:underline"
-                      >
-                        {row.category_name}
-                      </Link>
-                    ) : (
-                      <span className="text-muted-foreground">Uncategorized</span>
-                    )}
-                    <span className="font-mono text-destructive">
-                      {formatDollars(-row.spent_cents)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">No spending this month yet.</p>
-            )}
-          </CardContent>
-        </Card>
+      <div className="grid gap-6 md:grid-cols-3">
+        <AccountGroupCard title="On-budget" accounts={onBudget} total={onBudgetTotal} />
+        <AccountGroupCard title="Assets" accounts={assets} total={assetsTotal} />
+        <AccountGroupCard title="Liabilities" accounts={liabilities} total={liabilitiesTotal} />
       </div>
 
       <Card>
+        <CardHeader className="pb-3">
+          <CardTitle>This Month by Category</CardTitle>
+          <p className="text-xs text-muted-foreground">{from} to {to}</p>
+        </CardHeader>
+        <CardContent>
+          {monthlySpend.length ? (
+            <ul className="divide-y divide-border">
+              {monthlySpend.map((row) => (
+                <li
+                  key={row.category_id ?? "__uncat__"}
+                  className="flex justify-between py-2 text-sm"
+                >
+                  {row.category_id ? (
+                    <Link
+                      href={`/categories?id=${row.category_id}`}
+                      className="text-primary hover:underline"
+                    >
+                      {row.category_name}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">Uncategorized</span>
+                  )}
+                  <span className="font-mono tabular-nums text-destructive">
+                    {formatDollars(-row.spent_cents)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No spending this month yet.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle>Recent Transactions</CardTitle>
           <Badge variant="secondary">{recent.length}</Badge>
@@ -192,5 +170,55 @@ export default async function DashboardPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function AccountGroupCard({
+  title,
+  accounts,
+  total,
+}: {
+  title: string;
+  accounts: AccountResponse[];
+  total: number;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-baseline justify-between">
+          <CardTitle>{title}</CardTitle>
+          <span
+            className={`font-mono text-base font-semibold tabular-nums ${
+              total < 0 ? "text-destructive" : ""
+            }`}
+          >
+            {formatDollars(total)}
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {accounts.length ? (
+          <ul className="divide-y divide-border">
+            {accounts.map((a) => (
+              <li key={a.id} className="flex justify-between py-2 text-sm">
+                <Link
+                  href={`/transactions?account_id=${a.id}`}
+                  className="truncate text-primary hover:underline"
+                >
+                  {a.name}
+                </Link>
+                <span
+                  className={`font-mono tabular-nums ${a.balance_cents < 0 ? "text-destructive" : ""}`}
+                >
+                  {formatDollars(a.balance_cents)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">None.</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
