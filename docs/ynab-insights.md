@@ -282,3 +282,113 @@ is smooth because RSC streams progressively.
   amounts. `/categories` doesn't currently return `budgeted_cents`;
   exposing it is straightforward but separate work. Categories page
   gets the polish pass minus the sparkline.
+
+## v2.3 Agent UX decisions
+
+v2.1 shipped a plain in/out form for `/ask`. v2.3 turns it into the demo
+piece: streaming answers, a visible tool trace, multi-turn conversation
+within a session, suggested questions on the empty state.
+
+### Streaming protocol: SSE
+
+The backend rewrites `POST /ask` to return `text/event-stream`. Named
+events emitted in order:
+
+- `event: token` — `data: <chunk>` — incremental answer text.
+- `event: tool_use` — `data: {"id","tool","input"}` — assistant invoked
+  a tool. Emitted when the tool_use block finishes streaming (so input
+  is complete JSON), not on every partial JSON delta.
+- `event: tool_result` — `data: {"id","output","is_error"}` — server ran
+  the tool and is sending the result back to Claude.
+- `event: done` — `data: {"turns_used","stop_reason"}` — final.
+- `event: error` — `data: {"message"}` — fatal error mid-stream.
+
+SSE picked over chunked HTTP and WebSocket because it has named events
+(maps cleanly to `token` vs `tool_use` vs `tool_result`), is one-way
+which matches the agent flow, replays cleanly through Next.js' route
+proxy, and is supported by the Fetch streams API on the browser side
+without extra libraries. WebSocket would add reconnection complexity
+for no win; chunked HTTP would force the client to parse a custom
+delimiter.
+
+### Cancellation
+
+Client aborts the `fetch()` with an `AbortController`. The TCP stream
+closes; FastAPI's async generator gets cancelled (`asyncio.CancelledError`).
+The generator must propagate that cancellation into the Anthropic
+streaming context (`async with client.messages.stream(...)`) so the
+SDK closes its connection upstream and the model stops generating
+tokens we'd otherwise be billed for. The generator catches
+`CancelledError`, closes the stream, and re-raises.
+
+### Conversation context: session-only
+
+Each frontend request includes `history`, the full prior turns as
+Anthropic-format message dicts. Backend has no session storage; every
+request is stateless. Frontend persists `history` to `sessionStorage`
+so refreshes survive but tab close clears it. Aligns with the v2.4
+"privacy by default" story — no per-user state on the server.
+
+Context strategy: start with full history. If a user ever blows
+through 200K tokens of conversation in one session, revisit with a
+sliding window or summarization. Not building for that today.
+
+### Tool trace UI
+
+Inline above the answer, in the same chat bubble. Renders a "Tools
+used" chip per call as it happens, animated entrance. Each chip
+expands to show args (JSON, collapsed by default) and result (JSON,
+collapsed). Tool calls remain visible for the lifetime of the answer;
+the whole trace section is collapsible as a group via an action
+button.
+
+Inline placement chosen over sidebar because the trace IS the
+"watching the agent think" moment; pushing it sideways hides the
+narrative. Above the answer rather than below so it reads in temporal
+order (tools called first, then synthesized answer).
+
+### Markdown rendering
+
+`react-markdown` + `remark-gfm`. Tables, lists, links, code spans. No
+`rehype-raw` — we never want to render arbitrary HTML from the model.
+react-markdown is safe by default (no `dangerouslySetInnerHTML`); we
+verify by not enabling the unsafe plugin chain. Code blocks render as
+`<pre><code>` without syntax highlighting; the agent answers about
+budget data, not code, so a syntax-highlight dependency would be dead
+weight. Add `rehype-highlight` later if a tool ever returns SQL in its
+answer.
+
+### Suggested questions
+
+GET `/suggestions?budget_id=...` returns a small mixed list:
+
+- 2-3 curated, hardcoded prompts that exercise different tools.
+- 2-3 data-driven prompts derived from the user's actual data
+  (top category in the latest sync, biggest single transaction
+  recently, longest gap in spending). Built server-side so the
+  frontend doesn't need to know the formulas.
+
+Empty state renders these as chips; click pre-fills the input and
+submits.
+
+### Action buttons per answer
+
+- Copy answer (markdown text) to clipboard.
+- Regenerate (re-send same question + prior history).
+- Show/hide tool trace toggle (the per-answer one, distinct from
+  the per-call expand).
+
+### Input
+
+Auto-growing textarea, Cmd/Ctrl+Enter submits. Submit button shows
+loading state during streaming; Cancel button appears in its place
+once a stream is in flight. Disabled while streaming so the user
+can't double-submit.
+
+### Out of scope (deferred to v2.4 or beyond)
+
+- BYOK / multi-tenant — v2.4.
+- Cross-session persistence — intentionally never; conflicts with the
+  privacy-by-default story.
+- Voice or other modalities.
+- Inline charts in answers (text only for now).
