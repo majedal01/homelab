@@ -15,6 +15,8 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { BudgetSwitcher } from "@/components/budget-switcher";
+import type { BudgetResponse } from "@/lib/api-types";
 
 const NAV_ITEMS: { href: string; label: string }[] = [
   { href: "/", label: "Dashboard" },
@@ -51,7 +53,13 @@ function NavLink({
   );
 }
 
-export function Nav() {
+export function Nav({
+  budgets,
+  selectedBudgetId,
+}: {
+  budgets: BudgetResponse[];
+  selectedBudgetId: string | null;
+}) {
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
@@ -64,6 +72,7 @@ export function Nav() {
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-2">
+          <BudgetSwitcher budgets={budgets} selected={selectedBudgetId} />
           <ThemeToggle />
           <Sheet>
             <SheetTrigger asChild>

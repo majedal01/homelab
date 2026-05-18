@@ -1,4 +1,4 @@
-import { apiFetch, qs } from "@/lib/api";
+import { apiFetch, getSelectedBudgetId, qs } from "@/lib/api";
 import type {
   AccountResponse,
   BudgetResponse,
@@ -37,7 +37,7 @@ export default async function TransactionsPage({
   if (!budgets.length) {
     return <p className="text-sm text-muted-foreground">No budgets yet.</p>;
   }
-  const selected = budgets[0].id;
+  const selected = (await getSelectedBudgetId(budgets)) ?? budgets[0].id;
   const limit = Math.min(Math.max(parseInt(params.limit ?? "200", 10) || 200, 1), 500);
 
   const [transactions, accounts, categories] = await Promise.all([
