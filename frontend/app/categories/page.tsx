@@ -35,6 +35,7 @@ export default async function CategoriesPage() {
   const spendByCategory = new Map<string, number>();
   for (const t of txns) {
     if (t.amount_cents >= 0 || !t.category_id) continue;
+    if (t.transfer_account_id) continue;
     spendByCategory.set(
       t.category_id,
       (spendByCategory.get(t.category_id) ?? 0) + t.amount_cents,

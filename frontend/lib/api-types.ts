@@ -48,6 +48,7 @@ export interface TransactionResponse {
   category_name: string | null;
   payee_id: string | null;
   payee_name: string | null;
+  transfer_account_id: string | null;
   date: string;
   amount_cents: number;
   memo: string | null;

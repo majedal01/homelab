@@ -19,23 +19,49 @@ export default async function AccountsPage() {
   const open = accounts.filter((a) => !a.closed);
   const onBudget = open.filter((a) => a.on_budget);
   const tracking = open.filter((a) => !a.on_budget);
+  // Split tracking accounts by balance sign: positive = asset, negative =
+  // liability. Zero-balance tracking accounts group with assets.
+  const assets = tracking.filter((a) => a.balance_cents >= 0);
+  const liabilities = tracking.filter((a) => a.balance_cents < 0);
+  const netWorth = open.reduce((s, a) => s + a.balance_cents, 0);
 
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <AccountsCard title="On-budget" accounts={onBudget} />
-      <AccountsCard title="Tracking" accounts={tracking} muted />
+    <div className="space-y-6">
+      <NetWorthTile netWorth={netWorth} />
+      <div className="grid gap-6 md:grid-cols-3">
+        <AccountsCard title="On-budget" accounts={onBudget} />
+        <AccountsCard title="Assets" accounts={assets} />
+        <AccountsCard title="Liabilities" accounts={liabilities} />
+      </div>
     </div>
+  );
+}
+
+function NetWorthTile({ netWorth }: { netWorth: number }) {
+  return (
+    <Card>
+      <CardContent className="flex items-baseline justify-between p-6">
+        <span className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+          Net Worth
+        </span>
+        <span
+          className={`font-mono text-2xl font-semibold tabular-nums ${
+            netWorth < 0 ? "text-destructive" : ""
+          }`}
+        >
+          {formatDollars(netWorth)}
+        </span>
+      </CardContent>
+    </Card>
   );
 }
 
 function AccountsCard({
   title,
   accounts,
-  muted = false,
 }: {
   title: string;
   accounts: AccountResponse[];
-  muted?: boolean;
 }) {
   const total = accounts.reduce((s, a) => s + a.balance_cents, 0);
   return (
@@ -43,7 +69,11 @@ function AccountsCard({
       <CardHeader className="pb-3">
         <div className="flex items-baseline justify-between">
           <CardTitle>{title}</CardTitle>
-          <span className="font-mono text-base font-semibold tabular-nums">
+          <span
+            className={`font-mono text-base font-semibold tabular-nums ${
+              total < 0 ? "text-destructive" : ""
+            }`}
+          >
             {formatDollars(total)}
           </span>
         </div>
@@ -55,12 +85,12 @@ function AccountsCard({
               <li key={a.id} className="flex justify-between py-2 text-sm">
                 <Link
                   href={`/transactions?account_id=${a.id}`}
-                  className={`hover:underline ${muted ? "text-muted-foreground" : "text-primary"}`}
+                  className="text-primary hover:underline"
                 >
                   {a.name}
                 </Link>
                 <span
-                  className={`font-mono ${a.balance_cents < 0 ? "text-destructive" : ""}`}
+                  className={`font-mono tabular-nums ${a.balance_cents < 0 ? "text-destructive" : ""}`}
                 >
                   {formatDollars(a.balance_cents)}
                 </span>

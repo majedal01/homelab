@@ -280,6 +280,7 @@ def transaction_to_response(t: Transaction) -> TransactionResponse:
         category_name=t.category.name if t.category else None,
         payee_id=t.payee_id,
         payee_name=t.payee.name if t.payee else None,
+        transfer_account_id=t.payee.transfer_account_id if t.payee else None,
         date=t.date,
         amount_cents=t.amount_cents,
         memo=t.memo,
