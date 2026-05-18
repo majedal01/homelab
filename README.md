@@ -47,9 +47,10 @@ Full design in [`docs/deployment.md`](docs/deployment.md).
 
 **Status:** In progress.
 
-An AI-augmented dashboard that pulls data from the YNAB budgeting API into a local Postgres store, with a Claude-powered agent that answers natural-language questions about spending. Currently scaffolded as a hello-world FastAPI service; real features are in development.
+An AI-augmented dashboard that pulls data from the YNAB budgeting API into a local Postgres store, with a Claude-powered agent that answers natural-language questions about spending. FastAPI backend, Next.js (App Router) frontend, Postgres store; agent uses Claude tool-use with typed Python tools hitting the local DB.
 
-- Source: [`ynab_insights/`](ynab_insights/)
+- Source: [`ynab_insights/`](ynab_insights/) (backend + frontend live together)
+- Design notes: [`ynab_insights/DESIGN.md`](ynab_insights/DESIGN.md)
 - Deployed URL: TBD
 
 ## Skills demonstrated
@@ -69,10 +70,18 @@ Application-specific roadmaps live in each app's own folder.
 
 ## Repo structure
 
-- [`ynab_insights/`](ynab_insights/): FastAPI backend — application code, tests, Dockerfile.
-- [`frontend/`](frontend/): Next.js App Router frontend.
-- [`infra/compose/`](infra/compose/): per-environment Docker Compose stacks (stage, prod, dev).
-- [`docs/`](docs/): architecture and design notes.
+Monorepo. Platform-wide concerns (infra, CD, cross-cutting docs) live at the
+root; everything specific to a hosted app lives inside that app's folder.
+
+- [`ynab_insights/`](ynab_insights/): YNAB Insights app — FastAPI backend
+  ([`ynab_insights/app/`](ynab_insights/app/)), Next.js frontend
+  ([`ynab_insights/frontend/`](ynab_insights/frontend/)), tests, Dockerfiles,
+  app-specific design notes ([`DESIGN.md`](ynab_insights/DESIGN.md)).
+- [`infra/compose/`](infra/compose/): per-environment Docker Compose stacks
+  (`dev`, `stage`, `prod`). Platform-level — knows how to assemble app
+  containers into a deployable stack.
+- [`docs/`](docs/): platform docs ([`deployment.md`](docs/deployment.md)).
+  App-specific design notes live in their app folder.
 - [`.github/workflows/`](.github/workflows/): CI and CD pipelines.
 
 ## Local development
