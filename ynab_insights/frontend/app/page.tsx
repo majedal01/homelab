@@ -193,7 +193,7 @@ export default async function DashboardPage({
 
       <p className="text-center text-xs text-muted-foreground">
         Numbers reflect the currently selected budget. Definitions in{" "}
-        <Link href="https://github.com/majedal01/homelab/blob/main/docs/ynab-insights.md" className="underline">
+        <Link href="https://github.com/majedal01/homelab/blob/main/ynab_insights/DESIGN.md" className="underline">
           docs
         </Link>
         .

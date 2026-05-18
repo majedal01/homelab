@@ -92,7 +92,7 @@ the top nav.
 
 ### CI
 
-A new `.github/workflows/frontend-ci.yml` runs on changes to `frontend/**`.
+A new `.github/workflows/frontend-ci.yml` runs on changes to `ynab_insights/frontend/**`.
 Steps: install (npm ci), lint (next lint), typecheck (tsc --noEmit),
 build (next build), check that `lib/api-types.ts` is in sync with what
 the generator would produce (fails if dirty).

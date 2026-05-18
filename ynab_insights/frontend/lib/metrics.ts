@@ -4,7 +4,7 @@
  * AccountResponse[] / TransactionResponse[] so they can be unit-tested
  * without a backend.
  *
- * Definitions live in docs/ynab-insights.md under "KPI definitions". When
+ * Definitions live in ynab_insights/DESIGN.md under "KPI definitions". When
  * a calculation changes here, update that doc.
  */
 
