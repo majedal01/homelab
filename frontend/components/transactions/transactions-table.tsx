@@ -28,9 +28,7 @@ import { cn } from "@/lib/utils";
 import { formatDollars } from "@/lib/utils";
 import type { TransactionResponse } from "@/lib/api-types";
 
-interface Row extends TransactionResponse {}
-
-const columns: ColumnDef<Row>[] = [
+const columns: ColumnDef<TransactionResponse>[] = [
   {
     accessorKey: "date",
     header: ({ column }) => (
