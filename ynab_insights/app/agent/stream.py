@@ -84,9 +84,7 @@ async def stream_agent(
         default_budget_id=budget_id or settings.ynab_budget_id,
     )
 
-    messages: list[dict[str, Any]] = list(history) + [
-        {"role": "user", "content": question}
-    ]
+    messages: list[dict[str, Any]] = list(history) + [{"role": "user", "content": question}]
 
     try:
         for turn in range(settings.ask_max_turns):
@@ -103,7 +101,12 @@ async def stream_agent(
                 tools=tool_specs,  # type: ignore[arg-type]
                 messages=messages,  # type: ignore[arg-type]
             ) as stream:
-                async for event in stream:
+                async for raw_event in stream:
+                    # Anthropic's stream-event union is broad (thinking, citations,
+                    # signature deltas, ...). The branches below already discriminate
+                    # on `.type`; treating the event as Any avoids fighting mypy on
+                    # union-attr for fields that only exist on certain variants.
+                    event: Any = raw_event
                     et = event.type
                     if et == "content_block_start":
                         block = event.content_block
@@ -174,9 +177,7 @@ async def stream_agent(
             tool_result_blocks: list[dict[str, Any]] = []
             for pending in pending_tools:
                 tool_input = cast(dict[str, Any], pending["input"])
-                output, is_error = await _run_tool(
-                    session, pending["name"], tool_input
-                )
+                output, is_error = await _run_tool(session, pending["name"], tool_input)
                 yield _sse(
                     "tool_result",
                     {
@@ -189,11 +190,7 @@ async def stream_agent(
                     {
                         "type": "tool_result",
                         "tool_use_id": pending["id"],
-                        "content": (
-                            output
-                            if is_error
-                            else json.dumps(output, default=str)
-                        ),
+                        "content": (output if is_error else json.dumps(output, default=str)),
                         **({"is_error": True} if is_error else {}),
                     }
                 )

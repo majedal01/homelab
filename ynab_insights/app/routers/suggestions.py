@@ -65,17 +65,11 @@ async def suggestions(
 
     # Top spending category last month → "Why did I spend so much on X in May?"
     try:
-        by_cat = await spending_by_category(
-            session, budget_id, prev_first, prev_last_day
-        )
+        by_cat = await spending_by_category(session, budget_id, prev_first, prev_last_day)
         # spending_by_category returns most-negative first; filter out the
         # uncategorized row when present.
         top_named = next(
-            (
-                c
-                for c in by_cat
-                if c.category_name is not None and c.spent_cents < 0
-            ),
+            (c for c in by_cat if c.category_name is not None and c.spent_cents < 0),
             None,
         )
         if top_named is not None:
