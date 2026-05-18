@@ -1,12 +1,45 @@
 import type { Config } from "tailwindcss";
 
+// Tremor color tokens that Tailwind would otherwise tree-shake out of the
+// final stylesheet. Keep this list in sync with the chart palettes we use
+// (indigo, emerald, rose). Tremor reads class names at runtime so the
+// generator can't infer them from source files.
+const tremorSafelist: string[] = [
+  ...["indigo", "emerald", "rose", "slate", "amber"].flatMap((c) => [
+    `bg-${c}-50`,
+    `bg-${c}-100`,
+    `bg-${c}-200`,
+    `bg-${c}-300`,
+    `bg-${c}-400`,
+    `bg-${c}-500`,
+    `bg-${c}-600`,
+    `bg-${c}-700`,
+    `bg-${c}-800`,
+    `bg-${c}-900`,
+    `text-${c}-500`,
+    `text-${c}-600`,
+    `text-${c}-700`,
+    `text-${c}-400`,
+    `text-${c}-300`,
+    `border-${c}-500`,
+    `border-${c}-400`,
+    `ring-${c}-500`,
+    `stroke-${c}-500`,
+    `stroke-${c}-400`,
+    `fill-${c}-500`,
+    `fill-${c}-400`,
+  ]),
+];
+
 const config: Config = {
   darkMode: ["class"],
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
+    "./node_modules/@tremor/**/*.{js,ts,jsx,tsx}",
   ],
+  safelist: tremorSafelist,
   theme: {
     container: {
       center: true,
@@ -14,6 +47,9 @@ const config: Config = {
       screens: { "2xl": "1280px" },
     },
     extend: {
+      fontFamily: {
+        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+      },
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",

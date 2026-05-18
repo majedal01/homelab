@@ -27,8 +27,10 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        # Switch to `npm ci` once a committed package-lock.json exists.
-        run: npm install --no-package-lock
+        # --legacy-peer-deps: Tremor v3 peer-deps React 18 but works with
+        # React 19 in practice. Switch to `npm ci` once a committed
+        # package-lock.json exists.
+        run: npm install --no-package-lock --legacy-peer-deps
 
       - name: Lint
         run: npm run lint
