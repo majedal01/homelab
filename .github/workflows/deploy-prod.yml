@@ -40,8 +40,8 @@ jobs:
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
-          context: frontend
-          file: frontend/Dockerfile
+          context: ynab_insights/frontend
+          file: ynab_insights/frontend/Dockerfile
           push: true
           tags: |
             ghcr.io/majedal01/homelab/ynab_insights_frontend:prod-${{ github.sha }}
