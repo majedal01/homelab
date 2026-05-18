@@ -156,3 +156,129 @@ The FastAPI JSON contracts on `/budgets`, `/accounts`, `/categories`,
 `/payees`, `/transactions`, `/sync`, `/ask`, `/health`, `/metrics` are
 unchanged; only the HTML-serving routes (`/`, `/categories/{id}`, and
 the `_partials/*` endpoints) are removed.
+
+## v2.2 Dashboard decisions
+
+v2.1 shipped the Next.js scaffold with feature parity. v2.2 turns that
+scaffold into something that reads like a finished product: KPI hero row,
+trend chart, donut, data table, motion, real dark mode work.
+
+### Libraries
+
+- **Charts: Tremor v3 (`@tremor/react`)**. Built specifically for analytics
+  dashboards, ships with sensible defaults for axis formatting, tooltips,
+  and color palettes. Wraps Recharts under the hood. Tremor peer-deps on
+  React 18 but works with React 19 in practice; install with
+  `--legacy-peer-deps` to silence the warning. Frontend CI and the
+  Dockerfile both pass this flag.
+- **Motion: `motion`** (the new package name for the library formerly
+  published as `framer-motion`). Used for staggered card entrance and
+  hover lifts, not exuberant page transitions.
+- **Data table: TanStack Table v8** (`@tanstack/react-table`) for the
+  transactions page. Headless, server-friendly, integrates with shadcn's
+  data-table pattern.
+- **Date range picker: `react-day-picker` v9** (already shadcn's date
+  primitive). Wrapped in a shared `<DateRangePicker>` component with
+  presets and URL persistence.
+- **Font: Inter via `next/font/google`** for body + UI, with tabular
+  numerals enabled (`font-feature-settings: "tnum"`) on every numeric
+  span via Tailwind's `tabular-nums` utility. No separate display font;
+  Inter at larger sizes handles KPI numbers cleanly and avoids a second
+  font download.
+
+### KPI definitions
+
+Documented here so the dashboard's numbers are reproducible and the
+agent can answer "how is X calculated" with one source of truth.
+
+- **Net Worth** — sum of `balance_cents` over all open accounts
+  (`on_budget` ∪ tracking). Closed accounts excluded.
+- **This Month Spending** — sum of `-amount_cents` over transactions
+  where `amount_cents < 0`, the transaction's account is on-budget, the
+  date falls in the current calendar month (1st → today), and
+  `transfer_account_id IS NULL` (transfers are not spending). Displayed
+  as a positive number.
+- **This Month Income** — sum of `amount_cents` over transactions where
+  `amount_cents > 0`, account is on-budget, date in current month, and
+  not a transfer.
+- **Income vs Spending** — surplus `income - spending` for the current
+  month. Positive means living below means; negative means drawing
+  down. Displayed with a sign.
+- **Savings Rate** — `(income - spending) / income`, expressed as a
+  percentage. If income is zero or negative, displayed as `—`.
+- **vs Last Month** — every KPI shows a delta vs the same metric for the
+  prior calendar month (same definition, shifted). Color: green when
+  the delta improves the metric (income up, spending down, savings rate
+  up); red when it worsens it; muted when zero or undefined.
+
+### Date range
+
+A single `<DateRangePicker>` lives in the page chrome wherever date
+filtering applies (dashboard, transactions, categories). Presets:
+
+- **This month** (default)
+- **Last month**
+- **This year**
+- **Last 90 days**
+- **Custom** (calendar)
+
+State persists in URL search params (`date_from`, `date_to`) so back/
+forward navigation and shareable links work. The dashboard's KPI row
+ignores this picker — KPIs are intentionally always "this month vs last
+month" so the hero row stays comparable across refreshes. The trend
+chart and the category donut respect the picker.
+
+### Color palette
+
+Stays on shadcn `slate`. Semantic accents within Tailwind tokens:
+
+- **Positive amounts / income** — `emerald-600` (light) / `emerald-400`
+  (dark). Tabular-nums.
+- **Negative amounts / spending / liabilities** — `--destructive`
+  (already brightened in dark mode in v2.1.x to clear WCAG AA).
+- **Net worth, trend chart fills** — `--primary`. Tremor's `indigo` and
+  `slate` palette options are mapped to this via Tailwind tokens so
+  Tremor charts inherit shadcn theming.
+
+### Chart defaults
+
+Tremor defaults are kept unless they actively hurt:
+
+- BarChart and AreaChart use the `indigo` color category mapped to
+  `--primary`. Y-axis formatter: short-form dollars (e.g. `$1.2K`,
+  `$45K`).
+- DonutChart variant is `donut` (not `pie`); category labels render in
+  a side legend (Tremor's `<Legend>`), not inside the chart.
+- No animation duration override — Tremor's default 900ms easeOut
+  matches the rest of the entrance motion.
+
+### Motion
+
+Cards on the dashboard fade-and-slide in (`y: 8 → 0`, `opacity: 0 → 1`)
+with a 60ms stagger between siblings. Triggered once on first mount via
+`motion.div`. Hover lift is a 1px translate, no shadow — restrained.
+
+Page transitions are not animated (they fight Next.js' default RSC
+flow). Filter changes use `router.refresh()`; the resulting re-render
+is smooth because RSC streams progressively.
+
+### Skeletons + empty states
+
+- **Skeletons**: page-level for now. Each page exports a `loading.tsx`
+  that mirrors the final layout's card grid using `<Skeleton>`. KPI row
+  is 4 boxes; chart placeholders are filled rectangles with the same
+  aspect ratio as the live charts.
+- **Empty states**: a small lucide icon + one-line copy + (optional)
+  CTA link. Component lives at `frontend/components/empty.tsx`.
+
+### Out of scope (kicked to v2.2.x or v2.3)
+
+- Account-level 30-day sparkline. The backend doesn't store balance
+  history (we sync current balance only); deriving it from transactions
+  requires either a backfill aggregator or a `/reports/balance-history`
+  endpoint. Deferred — accounts page keeps the current balance + type
+  badge for v2.2.
+- Category-level mini sparklines + progress bars against budgeted
+  amounts. `/categories` doesn't currently return `budgeted_cents`;
+  exposing it is straightforward but separate work. Categories page
+  gets the polish pass minus the sparkline.

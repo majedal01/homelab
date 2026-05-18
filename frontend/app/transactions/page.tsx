@@ -1,3 +1,5 @@
+import { ListFilter } from "lucide-react";
+
 import { apiFetch, getSelectedBudgetId, qs } from "@/lib/api";
 import type {
   AccountResponse,
@@ -5,16 +7,10 @@ import type {
   CategoryResponse,
   TransactionResponse,
 } from "@/lib/api-types";
-import { formatDollars } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { DateRangePicker } from "@/components/date-range-picker";
+import { TransactionsTable } from "@/components/transactions/transactions-table";
+import { EmptyState } from "@/components/empty";
 
 interface PageSearchParams {
   account_id?: string;
@@ -35,10 +31,19 @@ export default async function TransactionsPage({
   const params = await searchParams;
   const budgets = await apiFetch<BudgetResponse[]>("/budgets");
   if (!budgets.length) {
-    return <p className="text-sm text-muted-foreground">No budgets yet.</p>;
+    return (
+      <EmptyState
+        icon={ListFilter}
+        title="No budgets yet"
+        description="Sync from YNAB to see your transactions."
+      />
+    );
   }
   const selected = (await getSelectedBudgetId(budgets)) ?? budgets[0].id;
-  const limit = Math.min(Math.max(parseInt(params.limit ?? "200", 10) || 200, 1), 500);
+  const limit = Math.min(
+    Math.max(parseInt(params.limit ?? "200", 10) || 200, 1),
+    500,
+  );
 
   const [transactions, accounts, categories] = await Promise.all([
     apiFetch<TransactionResponse[]>(
@@ -56,110 +61,65 @@ export default async function TransactionsPage({
     apiFetch<CategoryResponse[]>(`/categories${qs({ budget_id: selected })}`),
   ]);
 
-  const accountById = new Map(accounts.map((a) => [a.id, a]));
-  const categoryById = new Map(categories.map((c) => [c.id, c]));
-  void accountById;
-  void categoryById;
-
   return (
-    <div className="space-y-4">
-      <form
-        method="get"
-        action="/transactions"
-        className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4 text-sm"
-      >
-        <FilterDate name="date_from" label="From" value={params.date_from} />
-        <FilterDate name="date_to" label="To" value={params.date_to} />
-        <FilterSelect
-          name="account_id"
-          label="Account"
-          value={params.account_id}
-          options={accounts.map((a) => ({ value: a.id, label: a.name }))}
-        />
-        <FilterSelect
-          name="category_id"
-          label="Category"
-          value={params.category_id}
-          options={categories.map((c) => ({ value: c.id, label: c.name }))}
-        />
-        <button
-          type="submit"
-          className="h-9 rounded-md bg-primary px-4 text-sm text-primary-foreground hover:bg-primary/90"
-        >
-          Apply
-        </button>
-        <a href="/transactions" className="text-xs text-muted-foreground hover:underline">
-          Reset
-        </a>
-      </form>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Transactions</h1>
+          <p className="text-sm text-muted-foreground">
+            {transactions.length} loaded · sort columns, filter, search
+          </p>
+        </div>
+        <DateRangePicker />
+      </div>
 
       <Card>
-        <CardContent className="p-0">
-          {transactions.length ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-28">Date</TableHead>
-                  <TableHead>Payee</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Account</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {transactions.map((t) => (
-                  <TableRow key={t.id}>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {t.date}
-                    </TableCell>
-                    <TableCell>{t.payee_name ?? "—"}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {t.category_name ?? "Uncategorized"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{t.account_name}</TableCell>
-                    <TableCell
-                      className={`text-right font-mono ${
-                        t.amount_cents < 0
-                          ? "text-destructive"
-                          : "text-emerald-600 dark:text-emerald-400"
-                      }`}
-                    >
-                      {formatDollars(t.amount_cents)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="p-8 text-center text-sm text-muted-foreground">
-              No transactions match the current filters.
-            </p>
-          )}
+        <CardContent className="space-y-3 p-4">
+          <form
+            method="get"
+            action="/transactions"
+            className="flex flex-wrap items-end gap-3 text-sm"
+          >
+            <input
+              type="hidden"
+              name="date_from"
+              value={params.date_from ?? ""}
+            />
+            <input
+              type="hidden"
+              name="date_to"
+              value={params.date_to ?? ""}
+            />
+            <FilterSelect
+              name="account_id"
+              label="Account"
+              value={params.account_id}
+              options={accounts.map((a) => ({ value: a.id, label: a.name }))}
+            />
+            <FilterSelect
+              name="category_id"
+              label="Category"
+              value={params.category_id}
+              options={categories.map((c) => ({ value: c.id, label: c.name }))}
+            />
+            <button
+              type="submit"
+              className="h-9 rounded-md bg-primary px-4 text-sm text-primary-foreground hover:bg-primary/90"
+            >
+              Apply
+            </button>
+            <a
+              href="/transactions"
+              className="text-xs text-muted-foreground hover:underline"
+            >
+              Reset
+            </a>
+          </form>
         </CardContent>
       </Card>
-    </div>
-  );
-}
 
-function FilterDate({
-  name,
-  label,
-  value,
-}: {
-  name: string;
-  label: string;
-  value?: string;
-}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <input
-        type="date"
-        name={name}
-        defaultValue={value ?? ""}
-        className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-      />
-    </label>
+      <TransactionsTable data={transactions} />
+    </div>
   );
 }
 
