@@ -28,8 +28,9 @@ graph TD
 | -------------- | -------------------------------------------------------------- |
 | Infrastructure | Proxmox VE, GL.iNet Beryl AX, Tailscale                        |
 | Compute        | Ubuntu 25.04 VM, Docker, Docker Compose                        |
-| Application    | Python 3.12, FastAPI 0.110+, Pydantic 2+, PostgreSQL 16        |
-| Tooling        | Ruff 0.4+, mypy 1.10+ (strict), pytest 8+, hatchling           |
+| Backend        | Python 3.12, FastAPI 0.110+, Pydantic 2+, PostgreSQL 16        |
+| Frontend       | Next.js 15 (App Router), TypeScript strict, Tailwind, shadcn/ui |
+| Tooling        | Ruff 0.4+, mypy 1.10+ (strict), pytest 8+, hatchling, ESLint   |
 | CI/CD          | GitHub Actions, GitHub Container Registry                      |
 
 ## Pipeline
@@ -68,8 +69,9 @@ Application-specific roadmaps live in each app's own folder.
 
 ## Repo structure
 
-- [`ynab_insights/`](ynab_insights/): application code, tests, Dockerfile. One folder per hosted application.
-- [`infra/`](infra/): Docker Compose stacks. Root `docker-compose.yml` is for local dev; per-environment stacks live under [`infra/compose/`](infra/compose/).
+- [`ynab_insights/`](ynab_insights/): FastAPI backend — application code, tests, Dockerfile.
+- [`frontend/`](frontend/): Next.js App Router frontend.
+- [`infra/compose/`](infra/compose/): per-environment Docker Compose stacks (stage, prod, dev).
 - [`docs/`](docs/): architecture and design notes.
 - [`.github/workflows/`](.github/workflows/): CI and CD pipelines.
 
@@ -77,10 +79,11 @@ Application-specific roadmaps live in each app's own folder.
 
 ```bash
 git clone git@github.com:majedal01/homelab.git
-cd homelab/infra
-cp .env.example .env
-# fill in real credentials
-docker compose up
+cd homelab
+cp infra/compose/dev/.env.example infra/compose/dev/.env
+# fill in optional YNAB_TOKEN, ANTHROPIC_API_KEY if you want sync/ask working
+docker compose -f infra/compose/dev/docker-compose.yml up
 ```
 
-The app is available at `http://localhost:8000`. Deployment details in [`docs/deployment.md`](docs/deployment.md).
+Frontend at `http://localhost:3000`, FastAPI at `http://localhost:8000`. Both
+hot-reload on source changes. Deployment details in [`docs/deployment.md`](docs/deployment.md).

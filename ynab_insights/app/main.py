@@ -13,7 +13,6 @@ from app.routers import (
     ask,
     budgets,
     categories,
-    dashboard,
     health,
     metrics,
     payees,
@@ -52,7 +51,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="ynab-insights", lifespan=lifespan)
-app.include_router(dashboard.router)
 app.include_router(health.router)
 app.include_router(sync.router)
 app.include_router(budgets.router)
