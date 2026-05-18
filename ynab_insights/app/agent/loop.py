@@ -1,4 +1,9 @@
-"""Claude tool-use agent loop.
+"""Claude tool-use agent loop (non-streaming).
+
+`stream_agent` in app/agent/stream.py is the production path used by
+POST /ask. This module's `run_agent` remains as the unit-testable
+surface for tool dispatch, error handling, and max-turns capping
+(see tests/test_agent_loop.py). The two share `_build_system_prompt`.
 
 Sends a user question to Claude with tool definitions, dispatches any tool
 calls Claude makes against the local DB, loops until Claude returns a final

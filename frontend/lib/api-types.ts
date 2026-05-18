@@ -82,6 +82,15 @@ export interface AskResult {
 export interface AskRequest {
   question: string;
   budget_id?: string | null;
+  /**
+   * Prior conversation in Anthropic message format. Frontend persists this
+   * in sessionStorage and posts on every request; backend stays stateless.
+   */
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+}
+
+export interface SuggestionResponse {
+  suggestions: string[];
 }
 
 export interface HealthResponse {
