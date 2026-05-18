@@ -1,4 +1,4 @@
-import { apiFetch, qs } from "@/lib/api";
+import { apiFetch, getSelectedBudgetId, qs } from "@/lib/api";
 import type {
   AccountResponse,
   BudgetResponse,
@@ -28,7 +28,7 @@ export default async function DashboardPage() {
     );
   }
 
-  const selected = budgets[0].id;
+  const selected = (await getSelectedBudgetId(budgets)) ?? budgets[0].id;
   const from = firstOfMonth();
   const to = todayIso();
 
@@ -77,7 +77,9 @@ export default async function DashboardPage() {
           <CardHeader className="pb-3">
             <div className="flex items-baseline justify-between">
               <CardTitle>On-budget</CardTitle>
-              <span className="font-mono text-sm">{formatDollars(onBudgetTotal)}</span>
+              <span className="font-mono text-base font-semibold tabular-nums">
+                {formatDollars(onBudgetTotal)}
+              </span>
             </div>
           </CardHeader>
           <CardContent>
@@ -103,7 +105,7 @@ export default async function DashboardPage() {
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Tracking
                   </h3>
-                  <span className="font-mono text-xs text-muted-foreground">
+                  <span className="font-mono text-sm font-semibold tabular-nums text-muted-foreground">
                     {formatDollars(trackingTotal)}
                   </span>
                 </div>

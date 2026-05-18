@@ -1,4 +1,4 @@
-import { apiFetch, qs } from "@/lib/api";
+import { apiFetch, getSelectedBudgetId, qs } from "@/lib/api";
 import type { AccountResponse, BudgetResponse } from "@/lib/api-types";
 import { formatDollars } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,7 @@ export default async function AccountsPage() {
   if (!budgets.length) {
     return <p className="text-sm text-muted-foreground">No budgets yet.</p>;
   }
-  const selected = budgets[0].id;
+  const selected = (await getSelectedBudgetId(budgets)) ?? budgets[0].id;
   const accounts = await apiFetch<AccountResponse[]>(
     `/accounts${qs({ budget_id: selected })}`,
   );
@@ -43,7 +43,9 @@ function AccountsCard({
       <CardHeader className="pb-3">
         <div className="flex items-baseline justify-between">
           <CardTitle>{title}</CardTitle>
-          <span className="font-mono text-sm">{formatDollars(total)}</span>
+          <span className="font-mono text-base font-semibold tabular-nums">
+            {formatDollars(total)}
+          </span>
         </div>
       </CardHeader>
       <CardContent>
