@@ -58,3 +58,97 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* -------------------------------------------------------------------------
+ * Aurora ambient background.
+ * Palette + opacity rationale in docs/ynab-insights.md ("Aurora background").
+ * All washes are GPU-composited transforms; no paint cost after first frame.
+ * `prefers-reduced-motion` disables the drift entirely.
+ * ------------------------------------------------------------------------- */
+.aurora-wash {
+  position: absolute;
+  width: 60vmax;
+  height: 60vmax;
+  filter: blur(140px);
+  border-radius: 9999px;
+  opacity: 0.6;
+  will-change: transform;
+  animation: aurora-drift 48s ease-in-out infinite alternate;
+}
+
+.aurora-wash--quiet {
+  opacity: 0.35;
+  animation: none;
+}
+
+.aurora-wash--indigo {
+  top: -10vmax;
+  left: -10vmax;
+  background: radial-gradient(
+    closest-side,
+    rgba(99, 102, 241, 0.06) 0%,
+    rgba(99, 102, 241, 0) 70%
+  );
+  animation-delay: -8s;
+}
+
+.aurora-wash--violet {
+  top: 20vmax;
+  right: -15vmax;
+  background: radial-gradient(
+    closest-side,
+    rgba(139, 92, 246, 0.05) 0%,
+    rgba(139, 92, 246, 0) 70%
+  );
+  animation-delay: -22s;
+}
+
+.aurora-wash--cyan {
+  bottom: -15vmax;
+  left: 15vmax;
+  background: radial-gradient(
+    closest-side,
+    rgba(34, 211, 238, 0.04) 0%,
+    rgba(34, 211, 238, 0) 70%
+  );
+  animation-delay: -36s;
+}
+
+.dark .aurora-wash--indigo {
+  background: radial-gradient(
+    closest-side,
+    rgba(99, 102, 241, 0.18) 0%,
+    rgba(99, 102, 241, 0) 70%
+  );
+}
+
+.dark .aurora-wash--violet {
+  background: radial-gradient(
+    closest-side,
+    rgba(139, 92, 246, 0.14) 0%,
+    rgba(139, 92, 246, 0) 70%
+  );
+}
+
+.dark .aurora-wash--cyan {
+  background: radial-gradient(
+    closest-side,
+    rgba(34, 211, 238, 0.1) 0%,
+    rgba(34, 211, 238, 0) 70%
+  );
+}
+
+@keyframes aurora-drift {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  100% {
+    transform: translate3d(8vmax, 4vmax, 0) rotate(8deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-wash {
+    animation: none;
+  }
+}

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { MessageSquare, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Aurora } from "@/components/brand/aurora";
 import { Button } from "@/components/ui/button";
 import { Composer } from "@/components/ask/composer";
 import { SuggestedChips } from "@/components/ask/suggested-chips";
@@ -265,7 +266,9 @@ function AskPageInner() {
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <>
+      <Aurora variant="quiet" />
+      <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Ask</h1>
@@ -335,6 +338,7 @@ function AskPageInner() {
           autoFocus
         />
       </div>
-    </div>
+      </div>
+    </>
   );
 }

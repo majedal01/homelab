@@ -1,5 +1,6 @@
 import { apiFetch, getSelectedBudgetId, qs } from "@/lib/api";
 import type { BudgetResponse, InsightResponse } from "@/lib/api-types";
+import { Aurora } from "@/components/brand/aurora";
 import { InsightFeed } from "@/components/insights/feed";
 import { RegenerateButton } from "@/components/insights/regenerate-button";
 
@@ -38,7 +39,9 @@ export default async function InsightsPage({
   const visible = insights.slice(0, PAGE_SIZE);
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
+    <>
+      <Aurora variant="primary" />
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
@@ -51,6 +54,7 @@ export default async function InsightsPage({
       </div>
 
       <InsightFeed insights={visible} offset={offset} hasMore={hasMore} />
-    </div>
+      </div>
+    </>
   );
 }

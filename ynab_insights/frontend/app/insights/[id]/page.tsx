@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MessageSquare } from "lucide-react";
 
+import { Aurora } from "@/components/brand/aurora";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiFetch } from "@/lib/api";
@@ -69,7 +70,9 @@ export default async function InsightDetailPage({
   const askPrompt = buildAskPrompt(insight);
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
+    <>
+      <Aurora variant="quiet" />
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
           <Button variant="ghost" size="sm" asChild className="-ml-2">
@@ -108,6 +111,7 @@ export default async function InsightDetailPage({
           ? ` · refreshed ${insight.refreshed_at}`
           : ""}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
