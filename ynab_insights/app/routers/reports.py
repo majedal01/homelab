@@ -40,6 +40,12 @@ class CategoryNetResponse(BaseModel):
     net_cents: int
 
 
+class IncomeSourceResponse(BaseModel):
+    payee_id: str | None
+    payee_name: str | None
+    amount_cents: int
+
+
 class PeriodSummaryResponse(BaseModel):
     date_from: date
     date_to: date
@@ -48,6 +54,11 @@ class PeriodSummaryResponse(BaseModel):
     net_income_cents: int
     transaction_count: int
     by_category: list[CategoryNetResponse]
+    by_income_source: list[IncomeSourceResponse]
+    gross_outflow_cents: int
+    gross_inflow_cents: int
+    uncategorized_outflow_cents: int
+    uncategorized_inflow_cents: int
 
 
 @router.get("/monthly-spending", response_model=MonthlyTrendResponse)
@@ -100,4 +111,16 @@ async def period_summary_endpoint(
             )
             for row in summary.by_category
         ],
+        by_income_source=[
+            IncomeSourceResponse(
+                payee_id=row.payee_id,
+                payee_name=row.payee_name,
+                amount_cents=row.amount_cents,
+            )
+            for row in summary.by_income_source
+        ],
+        gross_outflow_cents=summary.gross_outflow_cents,
+        gross_inflow_cents=summary.gross_inflow_cents,
+        uncategorized_outflow_cents=summary.uncategorized_outflow_cents,
+        uncategorized_inflow_cents=summary.uncategorized_inflow_cents,
     )

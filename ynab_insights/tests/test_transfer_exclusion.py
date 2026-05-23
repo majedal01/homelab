@@ -239,6 +239,133 @@ async def test_monthly_summary_recognizes_ynab_income_category(
     assert "Rent" in names
 
 
+async def test_transfer_to_off_budget_account_counts_as_spending(
+    db_session: AsyncSession,
+) -> None:
+    """YNAB's reports treat a transfer to an OFF-budget tracking account
+    (loan, investment, asset) as real spending — paying down a car loan
+    is a Car Payment expense even though it's modeled as a transfer.
+
+    Pinned this test because the previous filter excluded ALL
+    transfer-payee rows regardless of the destination account's
+    on_budget flag, which silently dropped $687.52 of real spending on
+    the live "Majood & Choona" budget."""
+    today = date.today()
+    db_session.add_all(
+        [
+            Budget(
+                id="b-x",
+                name="X",
+                currency="USD",
+                last_modified_on=datetime(2026, 5, 1, tzinfo=UTC),
+            ),
+            # On-budget source
+            Account(
+                id="a-checking",
+                budget_id="b-x",
+                name="Checking",
+                type="checking",
+                balance_cents=0,
+                on_budget=True,
+                closed=False,
+            ),
+            # Off-budget tracking destination (loan, investment, etc.)
+            Account(
+                id="a-loan",
+                budget_id="b-x",
+                name="Auto Loan",
+                type="autoLoan",
+                balance_cents=0,
+                on_budget=False,
+                closed=False,
+            ),
+            # On-budget destination (control: should still be excluded)
+            Account(
+                id="a-savings",
+                budget_id="b-x",
+                name="Savings",
+                type="savings",
+                balance_cents=0,
+                on_budget=True,
+                closed=False,
+            ),
+            Category(
+                id="c-car",
+                budget_id="b-x",
+                category_group_id=None,
+                name="Car Payment",
+                hidden=False,
+            ),
+            # Transfer-to-off-budget payee
+            Payee(
+                id="p-xfer-loan",
+                budget_id="b-x",
+                name="Transfer : Auto Loan",
+                transfer_account_id="a-loan",
+            ),
+            # Transfer-to-on-budget payee (control)
+            Payee(
+                id="p-xfer-savings",
+                budget_id="b-x",
+                name="Transfer : Savings",
+                transfer_account_id="a-savings",
+            ),
+            # The real expense: Car Payment routed via transfer payee
+            Transaction(
+                id="t-car-payment",
+                budget_id="b-x",
+                account_id="a-checking",
+                category_id="c-car",
+                payee_id="p-xfer-loan",
+                date=today,
+                amount_cents=-68752,
+                memo=None,
+                cleared="cleared",
+                approved=True,
+            ),
+            # The auto-paired entry on the loan account itself
+            Transaction(
+                id="t-loan-side",
+                budget_id="b-x",
+                account_id="a-loan",
+                category_id=None,
+                payee_id="p-xfer-loan",
+                date=today,
+                amount_cents=68752,
+                memo=None,
+                cleared="cleared",
+                approved=True,
+            ),
+            # Control: a true internal transfer to on-budget Savings
+            # (should STILL be excluded from spending).
+            Transaction(
+                id="t-true-xfer",
+                budget_id="b-x",
+                account_id="a-checking",
+                category_id=None,
+                payee_id="p-xfer-savings",
+                date=today,
+                amount_cents=-50000,
+                memo=None,
+                cleared="cleared",
+                approved=True,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    result = await spending_by_category(db_session, "b-x", today.replace(day=1), today)
+    by_name = {r.category_name: r.spent_cents for r in result}
+    # Car Payment MUST appear — transfer to off-budget account is real spending.
+    assert by_name.get("Car Payment") == -68752
+    # The Savings transfer MUST NOT leak into any category.
+    assert -50000 not in by_name.values()
+
+    summary = await monthly_summary(db_session, "b-x", today.year, today.month)
+    # Total outflow includes the Car Payment, NOT the Savings transfer.
+    assert summary.total_outflow_cents == -68752
+
+
 async def test_spending_by_category_nets_inflows_against_outflows(
     db_session: AsyncSession,
 ) -> None:
