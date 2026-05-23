@@ -230,3 +230,19 @@ export interface MonthlyTrendPointResponse {
 export interface MonthlyTrendResponse {
   points: MonthlyTrendPointResponse[];
 }
+
+export interface CategoryNetResponse {
+  category_id: string | null;
+  category_name: string | null;
+  net_cents: number; // negative = net outflow, positive = net refund
+}
+
+export interface PeriodSummaryResponse {
+  date_from: string;
+  date_to: string;
+  income_cents: number;
+  spending_cents: number; // positive (matches YNAB's "Total Expenses" inverted)
+  net_income_cents: number;
+  transaction_count: number;
+  by_category: CategoryNetResponse[];
+}

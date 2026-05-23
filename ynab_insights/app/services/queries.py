@@ -16,8 +16,15 @@ from app.services.cache import TTLCache
 
 # YNAB ships a single built-in income category. Income transactions are
 # categorized to it instead of having a null category, so spending/income
-# aggregates have to treat it specially. Hardcoding the name is safe — YNAB
-# doesn't allow users to rename or create additional income categories.
+# aggregates have to treat it specially. The name has changed across YNAB
+# versions; budgets created before 2022 still use the legacy variant.
+INCOME_CATEGORY_NAMES = frozenset(
+    {
+        "Inflow: Ready to Assign",  # current
+        "Inflow: To Be Budgeted",  # legacy (pre-2022 budgets)
+    }
+)
+# Kept as a single string for backwards compat with imports elsewhere.
 INCOME_CATEGORY_NAME = "Inflow: Ready to Assign"
 
 # Single shared cache instance for the dashboard's hot queries. 30-second TTL
@@ -98,7 +105,7 @@ async def spending_by_category(
             Transaction.date <= end,
             Account.on_budget.is_(True),
             Account.closed.is_(False),
-            Category.name != INCOME_CATEGORY_NAME,
+            Category.name.notin_(INCOME_CATEGORY_NAMES),
         )
         .group_by(Category.id, Category.name)
         .having(func.coalesce(func.sum(Transaction.amount_cents), 0) < 0)
@@ -214,7 +221,7 @@ async def monthly_summary(
             Transaction.amount_cents > 0,
             or_(
                 Transaction.category_id.is_(None),
-                Category.name == INCOME_CATEGORY_NAME,
+                Category.name.in_(INCOME_CATEGORY_NAMES),
             ),
         )
     )
@@ -226,7 +233,7 @@ async def monthly_summary(
         .where(
             *base,
             Transaction.category_id.is_not(None),
-            Category.name != INCOME_CATEGORY_NAME,
+            Category.name.notin_(INCOME_CATEGORY_NAMES),
         )
     )
     count_stmt = _exclude_transfers(
@@ -247,6 +254,129 @@ async def monthly_summary(
         total_outflow_cents=int(outflow),
         transaction_count=int(count),
         top_categories=all_cats[:5],
+    )
+
+
+@dataclass(frozen=True)
+class CategoryNet:
+    category_id: str | None
+    category_name: str | None
+    net_cents: int  # negative = net outflow, positive = net refund
+
+
+@dataclass(frozen=True)
+class PeriodSummary:
+    date_from: date
+    date_to: date
+    income_cents: int  # YNAB "Total Income"
+    spending_cents: int  # YNAB "Total Expenses" as a positive number
+    net_income_cents: int  # income - spending
+    transaction_count: int
+    by_category: list[CategoryNet]  # signed nets per expense category
+
+
+async def period_summary(
+    session: AsyncSession,
+    budget_id: str,
+    start: date,
+    end: date,
+) -> PeriodSummary:
+    """One-shot YNAB-style "Income vs. Expense" rollup for a date range.
+
+    Used as the single source of truth for the dashboard's KPI tiles and
+    the donut card. Computing both from the same SQL guarantees the
+    "This month spending" KPI and the donut total stay consistent — and
+    that they match the categories page's "Total in range".
+
+    Semantics match YNAB's Income vs. Expense report:
+    - Income: positive amounts where category is null OR one of the
+      built-in income categories (`Inflow: Ready to Assign` / legacy
+      `Inflow: To Be Budgeted`).
+    - Spending: net of all amounts on rows tagged to a non-income
+      category. Refunds posted to an expense category reduce its net
+      (and therefore reduce total spending).
+    - On-budget accounts only; transfers excluded.
+    """
+    base_filter = (
+        Transaction.budget_id == budget_id,
+        Transaction.date >= start,
+        Transaction.date <= end,
+        Account.on_budget.is_(True),
+        Account.closed.is_(False),
+    )
+
+    income_stmt = _exclude_transfers(
+        select(func.coalesce(func.sum(Transaction.amount_cents), 0))
+        .select_from(Transaction)
+        .outerjoin(Category, Category.id == Transaction.category_id)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(
+            *base_filter,
+            Transaction.amount_cents > 0,
+            or_(
+                Transaction.category_id.is_(None),
+                Category.name.in_(INCOME_CATEGORY_NAMES),
+            ),
+        )
+    )
+    spending_stmt = _exclude_transfers(
+        select(func.coalesce(func.sum(-Transaction.amount_cents), 0))
+        .select_from(Transaction)
+        .outerjoin(Category, Category.id == Transaction.category_id)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(
+            *base_filter,
+            Transaction.category_id.is_not(None),
+            Category.name.notin_(INCOME_CATEGORY_NAMES),
+        )
+    )
+    count_stmt = _exclude_transfers(
+        select(func.count())
+        .select_from(Transaction)
+        .outerjoin(Category, Category.id == Transaction.category_id)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(*base_filter)
+    )
+    by_category_stmt = _exclude_transfers(
+        select(
+            Category.id,
+            Category.name,
+            func.coalesce(func.sum(Transaction.amount_cents), 0).label("net"),
+        )
+        .select_from(Transaction)
+        .outerjoin(Category, Category.id == Transaction.category_id)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(
+            *base_filter,
+            Transaction.category_id.is_not(None),
+            Category.name.notin_(INCOME_CATEGORY_NAMES),
+        )
+        .group_by(Category.id, Category.name)
+        .order_by("net")
+    )
+
+    income = (await session.execute(income_stmt)).scalar_one()
+    spending = (await session.execute(spending_stmt)).scalar_one()
+    count = (await session.execute(count_stmt)).scalar_one()
+    by_cat_rows = (await session.execute(by_category_stmt)).all()
+
+    income_int = int(income)
+    spending_int = int(spending)
+    return PeriodSummary(
+        date_from=start,
+        date_to=end,
+        income_cents=income_int,
+        spending_cents=spending_int,
+        net_income_cents=income_int - spending_int,
+        transaction_count=int(count),
+        by_category=[
+            CategoryNet(
+                category_id=row.id,
+                category_name=row.name,
+                net_cents=int(row.net),
+            )
+            for row in by_cat_rows
+        ],
     )
 
 
@@ -355,11 +485,11 @@ async def monthly_trend(
             .where(
                 *base_filter,
                 Transaction.category_id.is_not(None),
-                Category.name != INCOME_CATEGORY_NAME,
+                Category.name.notin_(INCOME_CATEGORY_NAMES),
             )
         )
         # Income matches YNAB's "Total Income": positive amounts where the
-        # category is null OR the built-in "Inflow: Ready to Assign".
+        # category is null OR one of the built-in income categories.
         income_stmt = _exclude_transfers(
             select(func.coalesce(func.sum(Transaction.amount_cents), 0))
             .select_from(Transaction)
@@ -370,7 +500,7 @@ async def monthly_trend(
                 Transaction.amount_cents > 0,
                 or_(
                     Transaction.category_id.is_(None),
-                    Category.name == INCOME_CATEGORY_NAME,
+                    Category.name.in_(INCOME_CATEGORY_NAMES),
                 ),
             )
         )
