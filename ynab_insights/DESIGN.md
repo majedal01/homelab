@@ -643,9 +643,12 @@ The pages removed in this PR:
 
 …along with their components (`dashboard/`, `accounts/`,
 `transactions/`, `categories/` under `frontend/components/`) and the
-shared utilities they pulled in (`metrics.ts` and the dashboard-only
-date range picker on those pages — the `DateRangePicker` itself stays
-because cashflow detail uses date selection).
+shared utilities they pulled in: `lib/metrics.ts` (KPI math used only
+by the dashboard) and `components/date-range-picker.tsx`. The picker
+was originally going to stay for cashflow detail, but the v2.4 cashflow
+detail uses a fixed 90-day lookback chosen by the backend, so the
+picker has no consumer and is removed too. If a future detail view
+needs interactive date selection, the picker comes back in that PR.
 
 The nav becomes two items: **Insights** and **Ask**.
 
