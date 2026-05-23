@@ -70,12 +70,15 @@ class CashflowForecastGenerator(InsightGenerator):
         # Both restricted to on-budget non-transfer rows to keep
         # tracking-account flows (investment buys, etc.) from skewing the
         # daily net.
+        # Historical aggregate; closed accounts intentionally included so
+        # the projection lines up with what YNAB attributes to those same
+        # 90 days. The starting balance above naturally excludes them
+        # because closed accounts always carry a zero balance.
         base_filter = (
             Transaction.budget_id == budget_id,
             Transaction.date >= start,
             Transaction.date <= today,
             Account.on_budget.is_(True),
-            Account.closed.is_(False),
         )
         income_stmt = _exclude_transfers(
             select(func.coalesce(func.sum(Transaction.amount_cents), 0))
