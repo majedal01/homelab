@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { Sparkles, X } from "lucide-react";
 
@@ -43,6 +44,7 @@ export function InsightCard({
   insight: InsightResponse;
   index: number;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = React.useTransition();
 
   function onDismiss(e: React.MouseEvent): void {
@@ -50,6 +52,7 @@ export function InsightCard({
     e.stopPropagation();
     startTransition(async () => {
       await dismissInsight(insight.id);
+      router.refresh();
     });
   }
 
