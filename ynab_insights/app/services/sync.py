@@ -22,6 +22,7 @@ from app.services.ynab_client import (
     YNABCategory,
     YNABClient,
     YNABPayee,
+    YNABSubTransaction,
     YNABTransaction,
     milliunits_to_cents,
 )
@@ -103,6 +104,29 @@ async def _do_sync(session: AsyncSession, ynab_token: str) -> SyncResult:
                 if txn.payee_id is not None and txn.payee_id not in known_payee_ids:
                     logger.info("nullifying orphan payee_id %s on txn %s", txn.payee_id, txn.id)
                     txn.payee_id = None
+
+                if txn.subtransactions:
+                    # Split transaction: the parent carries the full amount but
+                    # category_id=null. Persist each leg as its own row so the
+                    # categorized children show up in reports. Drop any
+                    # previously-synced parent row (from before this fix) so
+                    # we don't double-count.
+                    existing_parent = await session.get(Transaction, txn.id)
+                    if existing_parent is not None:
+                        await session.delete(existing_parent)
+                        await session.flush()
+                    for sub in txn.subtransactions:
+                        if (
+                            sub.category_id is not None
+                            and sub.category_id not in known_category_ids
+                        ):
+                            sub.category_id = None
+                        if sub.payee_id is not None and sub.payee_id not in known_payee_ids:
+                            sub.payee_id = None
+                        await _upsert_subtransaction(session, sub, txn, budget.id)
+                        result.transactions += 1
+                    continue
+
                 await _upsert_transaction(session, txn, budget.id)
                 result.transactions += 1
 
@@ -250,3 +274,46 @@ async def _upsert_transaction(
         existing.memo = source.memo
         existing.cleared = source.cleared
         existing.approved = source.approved
+
+
+async def _upsert_subtransaction(
+    session: AsyncSession,
+    sub: YNABSubTransaction,
+    parent: YNABTransaction,
+    budget_id: str,
+) -> None:
+    """Persist one leg of a split as a standalone Transaction row.
+
+    Sub.id is unique in YNAB, so we use it as our primary key. Date,
+    account, cleared, and approved come from the parent; category, payee,
+    amount, and memo come from the sub itself.
+    """
+    existing = await session.get(Transaction, sub.id)
+    amount_cents = milliunits_to_cents(sub.amount)
+    # Sub may omit payee_id, in which case YNAB intends the parent's payee.
+    effective_payee_id = sub.payee_id if sub.payee_id is not None else parent.payee_id
+    if existing is None:
+        session.add(
+            Transaction(
+                id=sub.id,
+                budget_id=budget_id,
+                account_id=parent.account_id,
+                category_id=sub.category_id,
+                payee_id=effective_payee_id,
+                date=parent.date,
+                amount_cents=amount_cents,
+                memo=sub.memo,
+                cleared=parent.cleared,
+                approved=parent.approved,
+            )
+        )
+    else:
+        existing.budget_id = budget_id
+        existing.account_id = parent.account_id
+        existing.category_id = sub.category_id
+        existing.payee_id = effective_payee_id
+        existing.date = parent.date
+        existing.amount_cents = amount_cents
+        existing.memo = sub.memo
+        existing.cleared = parent.cleared
+        existing.approved = parent.approved

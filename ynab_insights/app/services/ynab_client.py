@@ -64,6 +64,19 @@ class YNABPayee(BaseModel):
     transfer_account_id: str | None = None
 
 
+class YNABSubTransaction(BaseModel):
+    """One leg of a split. YNAB returns these inside the parent's
+    `subtransactions` array. The sub carries its own category, payee, amount,
+    and memo; the parent provides the date and account."""
+
+    id: str
+    transaction_id: str  # parent transaction id
+    category_id: str | None = None
+    payee_id: str | None = None
+    amount: int  # milliunits, can be negative
+    memo: str | None = None
+
+
 class YNABTransaction(BaseModel):
     id: str
     account_id: str
@@ -74,6 +87,9 @@ class YNABTransaction(BaseModel):
     memo: str | None = None
     cleared: str = "uncleared"
     approved: bool = False
+    # Populated for split transactions; the parent's category_id is null and
+    # the parent's amount equals the sum of subtransaction amounts.
+    subtransactions: list[YNABSubTransaction] = []
 
 
 class RateLimitInfo(BaseModel):
