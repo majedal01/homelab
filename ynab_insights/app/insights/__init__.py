@@ -19,6 +19,16 @@ from app.insights.base import (
     register_generator,
 )
 
+# Importing each generator module triggers the @register_generator decorator at
+# class-definition time. Keep these imports at the bottom so the framework's
+# public surface remains importable even if a generator import fails.
+from app.insights import (  # noqa: E402, F401  (side-effect imports)
+    cashflow_forecast,
+    goal_trajectory,
+    spending_anomaly,
+    subscription_audit,
+)
+
 __all__ = [
     "GeneratedInsight",
     "InsightGenerator",
