@@ -169,7 +169,17 @@ async def monthly_summary(
     year: int,
     month: int,
 ) -> MonthSummary:
-    """Period summary used by the agent's `monthly_summary` tool."""
+    """Period summary matching YNAB's "Income vs. Expense" report semantics:
+
+    - Inflow ("Total Income"): positive-amount rows in a null category on an
+      on-budget account, transfers excluded. Refunds posted to expense
+      categories are NOT income — they reduce that category's net spend.
+    - Outflow ("Total Expenses"): sum of all amounts on categorized rows on
+      on-budget accounts, transfers excluded. Returned as a non-positive
+      number so callers preserve the historical sign convention. A category
+      that nets to a refund (Education +$156) reduces total expenses, which
+      is exactly what YNAB does.
+    """
     from calendar import monthrange
 
     start = date(year, month, 1)
@@ -178,19 +188,32 @@ async def monthly_summary(
         Transaction.budget_id == budget_id,
         Transaction.date >= start,
         Transaction.date <= end,
+        Account.on_budget.is_(True),
+        Account.closed.is_(False),
     )
 
     inflow_stmt = _exclude_transfers(
-        select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
-            *base, Transaction.amount_cents > 0
+        select(func.coalesce(func.sum(Transaction.amount_cents), 0))
+        .select_from(Transaction)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(
+            *base,
+            Transaction.amount_cents > 0,
+            Transaction.category_id.is_(None),
         )
     )
     outflow_stmt = _exclude_transfers(
-        select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
-            *base, Transaction.amount_cents < 0
-        )
+        select(func.coalesce(func.sum(Transaction.amount_cents), 0))
+        .select_from(Transaction)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(*base, Transaction.category_id.is_not(None))
     )
-    count_stmt = _exclude_transfers(select(func.count()).select_from(Transaction).where(*base))
+    count_stmt = _exclude_transfers(
+        select(func.count())
+        .select_from(Transaction)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(*base)
+    )
     inflow = (await session.execute(inflow_stmt)).scalar_one()
     outflow = (await session.execute(outflow_stmt)).scalar_one()
     count = (await session.execute(count_stmt)).scalar_one()
@@ -300,17 +323,25 @@ async def monthly_trend(
             Account.on_budget.is_(True),
             Account.closed.is_(False),
         )
+        # Spending matches YNAB's "Total Expenses": net of all amounts on
+        # categorized rows. Refunds in expense categories reduce the total.
         spending_stmt = _exclude_transfers(
             select(func.coalesce(func.sum(-Transaction.amount_cents), 0))
             .select_from(Transaction)
             .join(Account, Account.id == Transaction.account_id)
-            .where(*base_filter, Transaction.amount_cents < 0)
+            .where(*base_filter, Transaction.category_id.is_not(None))
         )
+        # Income matches YNAB's "Total Income": positive amounts with null
+        # category (Ready to Assign).
         income_stmt = _exclude_transfers(
             select(func.coalesce(func.sum(Transaction.amount_cents), 0))
             .select_from(Transaction)
             .join(Account, Account.id == Transaction.account_id)
-            .where(*base_filter, Transaction.amount_cents > 0)
+            .where(
+                *base_filter,
+                Transaction.amount_cents > 0,
+                Transaction.category_id.is_(None),
+            )
         )
         spending = (await session.execute(spending_stmt)).scalar_one()
         income = (await session.execute(income_stmt)).scalar_one()

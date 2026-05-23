@@ -62,24 +62,40 @@ class CashflowForecastGenerator(InsightGenerator):
             return []
         starting_balance_cents = sum(a.balance_cents for a in accounts)
 
-        # Aggregate net cashflow in SQL: on-budget only, transfers excluded.
-        # Avoids the /transactions limit cap that would silently drop the
-        # oldest days when a user has more than ~500 transactions in 90 days,
-        # and avoids pulling tracking-account flows that would distort the
-        # projection (e.g. a $-10k investment buy isn't real spending).
-        net_stmt = _exclude_transfers(
+        # Aggregate income and spending separately so the detail card can
+        # show the user the inputs to the projection. YNAB semantics:
+        # - Income = positive amounts in null category (Ready to Assign)
+        # - Spending = sum of amounts on categorized rows (refunds reduce
+        #   spending naturally)
+        # Both restricted to on-budget non-transfer rows to keep
+        # tracking-account flows (investment buys, etc.) from skewing the
+        # daily net.
+        base_filter = (
+            Transaction.budget_id == budget_id,
+            Transaction.date >= start,
+            Transaction.date <= today,
+            Account.on_budget.is_(True),
+            Account.closed.is_(False),
+        )
+        income_stmt = _exclude_transfers(
             select(func.coalesce(func.sum(Transaction.amount_cents), 0))
             .select_from(Transaction)
             .join(Account, Account.id == Transaction.account_id)
             .where(
-                Transaction.budget_id == budget_id,
-                Transaction.date >= start,
-                Transaction.date <= today,
-                Account.on_budget.is_(True),
-                Account.closed.is_(False),
+                *base_filter,
+                Transaction.amount_cents > 0,
+                Transaction.category_id.is_(None),
             )
         )
-        net_cents = int((await session.execute(net_stmt)).scalar_one())
+        spending_stmt = _exclude_transfers(
+            select(func.coalesce(func.sum(-Transaction.amount_cents), 0))
+            .select_from(Transaction)
+            .join(Account, Account.id == Transaction.account_id)
+            .where(*base_filter, Transaction.category_id.is_not(None))
+        )
+        lookback_income_cents = int((await session.execute(income_stmt)).scalar_one())
+        lookback_spending_cents = int((await session.execute(spending_stmt)).scalar_one())
+        net_cents = lookback_income_cents - lookback_spending_cents
         daily_net = round(net_cents / LOOKBACK_DAYS)
 
         projected_30 = starting_balance_cents + daily_net * 30
@@ -107,6 +123,8 @@ class CashflowForecastGenerator(InsightGenerator):
             projected_60d_cents=projected_60,
             projected_90d_cents=projected_90,
             lookback_days=LOOKBACK_DAYS,
+            lookback_income_cents=lookback_income_cents,
+            lookback_spending_cents=lookback_spending_cents,
             top_spending_categories=top_rates,
         )
 

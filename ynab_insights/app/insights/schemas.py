@@ -82,6 +82,11 @@ class CashflowForecastData(BaseModel):
     projected_60d_cents: int
     projected_90d_cents: int
     lookback_days: int
+    # Both expressed as positive cents over the lookback window so the
+    # detail card can show "Income $X minus Spending $Y over N days =
+    # daily net $Z" and the user can reconcile against YNAB.
+    lookback_income_cents: int = 0
+    lookback_spending_cents: int = 0
     top_spending_categories: list[CategoryRate]
 
 
