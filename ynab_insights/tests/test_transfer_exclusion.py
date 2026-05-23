@@ -156,6 +156,89 @@ async def test_monthly_summary_excludes_transfers_from_inflow_and_outflow(
     assert result.transaction_count == 3
 
 
+async def test_monthly_summary_recognizes_ynab_income_category(
+    db_session: AsyncSession,
+) -> None:
+    """YNAB tags real-world paychecks to the built-in 'Inflow: Ready to
+    Assign' category, not to a null category. The aggregate logic has to
+    recognize that name and treat positive amounts there as income (NOT
+    fold them into expenses)."""
+    today = date.today()
+    db_session.add_all(
+        [
+            Budget(
+                id="b-i",
+                name="I",
+                currency="USD",
+                last_modified_on=datetime(2026, 5, 1, tzinfo=UTC),
+            ),
+            Account(
+                id="a-i",
+                budget_id="b-i",
+                name="Checking",
+                type="checking",
+                balance_cents=0,
+                on_budget=True,
+                closed=False,
+            ),
+            # YNAB ships this category in every budget; income posts here.
+            Category(
+                id="c-rta",
+                budget_id="b-i",
+                category_group_id=None,
+                name="Inflow: Ready to Assign",
+                hidden=False,
+            ),
+            Category(
+                id="c-rent",
+                budget_id="b-i",
+                category_group_id=None,
+                name="Rent",
+                hidden=False,
+            ),
+            # Income tagged to RTA — the realistic shape.
+            Transaction(
+                id="t-paycheck",
+                budget_id="b-i",
+                account_id="a-i",
+                category_id="c-rta",
+                payee_id=None,
+                date=today,
+                amount_cents=977003,
+                memo="paycheck",
+                cleared="cleared",
+                approved=True,
+            ),
+            # Real spending in an expense category.
+            Transaction(
+                id="t-rent",
+                budget_id="b-i",
+                account_id="a-i",
+                category_id="c-rent",
+                payee_id=None,
+                date=today,
+                amount_cents=-381300,
+                memo=None,
+                cleared="cleared",
+                approved=True,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    result = await monthly_summary(db_session, "b-i", today.year, today.month)
+    # Inflow MUST count the RTA-tagged paycheck.
+    assert result.total_inflow_cents == 977003
+    # Outflow MUST NOT count the RTA-tagged paycheck — only rent.
+    assert result.total_outflow_cents == -381300
+
+    # The donut/categories view must not list RTA as an expense category.
+    cats = await spending_by_category(db_session, "b-i", today.replace(day=1), today)
+    names = {c.category_name for c in cats}
+    assert "Inflow: Ready to Assign" not in names
+    assert "Rent" in names
+
+
 async def test_spending_by_category_nets_inflows_against_outflows(
     db_session: AsyncSession,
 ) -> None:

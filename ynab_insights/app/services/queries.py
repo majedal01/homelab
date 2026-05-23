@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from sqlalchemy.sql import Select
@@ -13,6 +13,12 @@ from sqlalchemy.sql import Select
 from app.models import Account, Budget, Category, Payee, Transaction
 from app.schemas import TransactionResponse
 from app.services.cache import TTLCache
+
+# YNAB ships a single built-in income category. Income transactions are
+# categorized to it instead of having a null category, so spending/income
+# aggregates have to treat it specially. Hardcoding the name is safe — YNAB
+# doesn't allow users to rename or create additional income categories.
+INCOME_CATEGORY_NAME = "Inflow: Ready to Assign"
 
 # Single shared cache instance for the dashboard's hot queries. 30-second TTL
 # matches our default sync cadence well enough that fresh syncs are visible
@@ -64,13 +70,15 @@ async def spending_by_category(
     end: date,
 ) -> list[CategorySpend]:
     """Net spending per category over [start, end], scoped to on-budget
-    accounts and excluding transfers.
+    accounts and excluding transfers + the YNAB income category.
 
     Sums BOTH inflows and outflows per category so that reimbursements
     posted to the same category (e.g. "Reimbursable Expenses" with the
     expense as outflow + employer payment as inflow) cancel out. Returns
     only categories with net outflow (sum < 0); categories that net to
-    refund or zero are omitted from the spending view.
+    refund or zero are omitted from the spending view. The built-in
+    `Inflow: Ready to Assign` category is excluded entirely since it's
+    income, not spending.
 
     `spent_cents` stays negative (= sum of amount_cents for the category)
     so existing callers that flip the sign for display keep working.
@@ -90,6 +98,7 @@ async def spending_by_category(
             Transaction.date <= end,
             Account.on_budget.is_(True),
             Account.closed.is_(False),
+            Category.name != INCOME_CATEGORY_NAME,
         )
         .group_by(Category.id, Category.name)
         .having(func.coalesce(func.sum(Transaction.amount_cents), 0) < 0)
@@ -192,21 +201,33 @@ async def monthly_summary(
         Account.closed.is_(False),
     )
 
+    # YNAB income lives in the built-in "Inflow: Ready to Assign" category;
+    # treat positive amounts tagged to it as income, and exclude it from the
+    # expense rollup so it doesn't get counted as negative spending.
     inflow_stmt = _exclude_transfers(
         select(func.coalesce(func.sum(Transaction.amount_cents), 0))
         .select_from(Transaction)
+        .outerjoin(Category, Category.id == Transaction.category_id)
         .join(Account, Account.id == Transaction.account_id)
         .where(
             *base,
             Transaction.amount_cents > 0,
-            Transaction.category_id.is_(None),
+            or_(
+                Transaction.category_id.is_(None),
+                Category.name == INCOME_CATEGORY_NAME,
+            ),
         )
     )
     outflow_stmt = _exclude_transfers(
         select(func.coalesce(func.sum(Transaction.amount_cents), 0))
         .select_from(Transaction)
+        .outerjoin(Category, Category.id == Transaction.category_id)
         .join(Account, Account.id == Transaction.account_id)
-        .where(*base, Transaction.category_id.is_not(None))
+        .where(
+            *base,
+            Transaction.category_id.is_not(None),
+            Category.name != INCOME_CATEGORY_NAME,
+        )
     )
     count_stmt = _exclude_transfers(
         select(func.count())
@@ -324,23 +345,33 @@ async def monthly_trend(
             Account.closed.is_(False),
         )
         # Spending matches YNAB's "Total Expenses": net of all amounts on
-        # categorized rows. Refunds in expense categories reduce the total.
+        # categorized rows, excluding the built-in income category. Refunds
+        # in expense categories reduce the total.
         spending_stmt = _exclude_transfers(
             select(func.coalesce(func.sum(-Transaction.amount_cents), 0))
             .select_from(Transaction)
+            .outerjoin(Category, Category.id == Transaction.category_id)
             .join(Account, Account.id == Transaction.account_id)
-            .where(*base_filter, Transaction.category_id.is_not(None))
+            .where(
+                *base_filter,
+                Transaction.category_id.is_not(None),
+                Category.name != INCOME_CATEGORY_NAME,
+            )
         )
-        # Income matches YNAB's "Total Income": positive amounts with null
-        # category (Ready to Assign).
+        # Income matches YNAB's "Total Income": positive amounts where the
+        # category is null OR the built-in "Inflow: Ready to Assign".
         income_stmt = _exclude_transfers(
             select(func.coalesce(func.sum(Transaction.amount_cents), 0))
             .select_from(Transaction)
+            .outerjoin(Category, Category.id == Transaction.category_id)
             .join(Account, Account.id == Transaction.account_id)
             .where(
                 *base_filter,
                 Transaction.amount_cents > 0,
-                Transaction.category_id.is_(None),
+                or_(
+                    Transaction.category_id.is_(None),
+                    Category.name == INCOME_CATEGORY_NAME,
+                ),
             )
         )
         spending = (await session.execute(spending_stmt)).scalar_one()
