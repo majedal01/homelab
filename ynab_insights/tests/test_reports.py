@@ -51,14 +51,28 @@ async def seeded(db_session: AsyncSession) -> AsyncSession:
             closed=False,
         )
     )
+    # Second on-budget account so we can model an INTERNAL transfer
+    # (on-budget → on-budget) that the report must still exclude. Tests
+    # that need to exercise transfer-to-off-budget (= real expense per
+    # YNAB) live in `test_transfer_exclusion.py`.
+    db_session.add(
+        Account(
+            id="a-savings",
+            budget_id="b-1",
+            name="Savings",
+            type="savings",
+            balance_cents=0,
+            on_budget=True,
+            closed=False,
+        )
+    )
     db_session.add(Payee(id="p-1", budget_id="b-1", name="Vendor"))
-    # Transfer payee so we can verify exclusion.
     db_session.add(
         Payee(
             id="p-xfer",
             budget_id="b-1",
-            name="Transfer",
-            transfer_account_id="a-tracking",
+            name="Transfer : Savings",
+            transfer_account_id="a-savings",
         )
     )
     db_session.add(
