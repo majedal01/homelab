@@ -28,14 +28,25 @@ export interface CategoryDonutCardProps {
   rows: CategorySpendRow[];
   /** Date range label for the subtitle (e.g. "May 1–17"). */
   rangeLabel?: string;
+  /**
+   * Authoritative total to display in the donut center. When omitted the
+   * card falls back to summing visible slices. The dashboard passes the
+   * server's "Total Expenses" so refund-net categories (Education, etc.)
+   * — which are excluded from the slice list because a pie can't render
+   * negative values — still reduce the headline total, keeping it
+   * identical to the "Spending" KPI.
+   */
+  totalCentsOverride?: number;
 }
 
-export function CategoryDonutCard({ rows, rangeLabel }: CategoryDonutCardProps) {
-  const { sliced, total } = React.useMemo(() => {
-    // Donut only draws positive net-spending slices; refund-net categories
-    // are still shown elsewhere (categories page) but don't fit a pie chart.
+export function CategoryDonutCard({
+  rows,
+  rangeLabel,
+  totalCentsOverride,
+}: CategoryDonutCardProps) {
+  const { sliced, sliceSum } = React.useMemo(() => {
     const positive = rows.filter((r) => r.spent_cents > 0);
-    if (!positive.length) return { sliced: [], total: 0 };
+    if (!positive.length) return { sliced: [], sliceSum: 0 };
     const top = positive.slice(0, TOP_N);
     const rest = positive.slice(TOP_N);
     const otherTotal = rest.reduce((s, r) => s + r.spent_cents, 0);
@@ -55,9 +66,12 @@ export function CategoryDonutCard({ rows, rangeLabel }: CategoryDonutCardProps) 
         color: "slate",
       });
     }
-    const total = list.reduce((s, x) => s + x.cents, 0);
-    return { sliced: list, total };
+    const sum = list.reduce((s, x) => s + x.cents, 0);
+    return { sliced: list, sliceSum: sum };
   }, [rows]);
+
+  const total = totalCentsOverride ?? sliceSum;
+  const refundOffset = total - sliceSum; // negative when refunds are netted in
 
   return (
     <motion.div
@@ -125,6 +139,12 @@ export function CategoryDonutCard({ rows, rangeLabel }: CategoryDonutCardProps) 
                     </li>
                   ))}
                 </ul>
+                {refundOffset < 0 ? (
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Includes {formatDollars(refundOffset)} of refunds posted
+                    to expense categories.
+                  </p>
+                ) : null}
               </div>
             </div>
           ) : (

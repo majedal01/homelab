@@ -182,3 +182,111 @@ async def test_monthly_spending_rejects_out_of_range_months(
         "/reports/monthly-spending", params={"budget_id": "b-1", "months": 999}
     )
     assert response.status_code == 422
+
+
+async def test_period_summary_matches_ynab_semantics(
+    seeded: AsyncSession, client: AsyncClient
+) -> None:
+    today = date.today()
+    response = await client.get(
+        "/reports/period-summary",
+        params={
+            "budget_id": "b-1",
+            "date_from": date(today.year, today.month, 1).isoformat(),
+            "date_to": date(today.year, today.month, 28).isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    # Spending: t-this-spend $100 on category c-spend. Transfer + tracking
+    # account rows excluded.
+    assert payload["spending_cents"] == 10000
+    # Income: t-this-income $500 in null category counts.
+    assert payload["income_cents"] == 50000
+    # Net = income − spending
+    assert payload["net_income_cents"] == 50000 - 10000
+    # by_category includes only expense categories (RTA / null excluded).
+    names = {row["category_name"] for row in payload["by_category"]}
+    assert "Spending" in names
+
+
+async def test_period_summary_recognizes_ynab_income_category_via_endpoint(
+    db_session: AsyncSession, client: AsyncClient
+) -> None:
+    """End-to-end: a paycheck tagged to the YNAB "Inflow: Ready to Assign"
+    category lands in income_cents and stays out of by_category."""
+    today = date.today()
+    db_session.add_all(
+        [
+            Budget(
+                id="b-rta",
+                name="RTA",
+                currency="USD",
+                last_modified_on=datetime(2026, 5, 1, tzinfo=UTC),
+            ),
+            Account(
+                id="a-rta",
+                budget_id="b-rta",
+                name="Checking",
+                type="checking",
+                balance_cents=0,
+                on_budget=True,
+                closed=False,
+            ),
+            Category(
+                id="c-rta",
+                budget_id="b-rta",
+                category_group_id=None,
+                name="Inflow: Ready to Assign",
+                hidden=False,
+            ),
+            Category(
+                id="c-groceries",
+                budget_id="b-rta",
+                category_group_id=None,
+                name="Groceries",
+                hidden=False,
+            ),
+            Transaction(
+                id="t-paycheck",
+                budget_id="b-rta",
+                account_id="a-rta",
+                category_id="c-rta",
+                payee_id=None,
+                date=today,
+                amount_cents=977003,
+                memo=None,
+                cleared="cleared",
+                approved=True,
+            ),
+            Transaction(
+                id="t-groceries",
+                budget_id="b-rta",
+                account_id="a-rta",
+                category_id="c-groceries",
+                payee_id=None,
+                date=today,
+                amount_cents=-60304,
+                memo=None,
+                cleared="cleared",
+                approved=True,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await client.get(
+        "/reports/period-summary",
+        params={
+            "budget_id": "b-rta",
+            "date_from": today.replace(day=1).isoformat(),
+            "date_to": today.isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["income_cents"] == 977003
+    assert payload["spending_cents"] == 60304
+    cat_names = {row["category_name"] for row in payload["by_category"]}
+    assert "Inflow: Ready to Assign" not in cat_names
+    assert "Groceries" in cat_names

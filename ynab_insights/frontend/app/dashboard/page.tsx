@@ -6,22 +6,19 @@ import type {
   AccountResponse,
   BudgetResponse,
   MonthlyTrendResponse,
+  PeriodSummaryResponse,
   TransactionResponse,
 } from "@/lib/api-types";
 import { formatDollars } from "@/lib/utils";
 import {
-  categoryBreakdown,
   compareValues,
   currentMonth,
-  incomeFromTransactions,
   monthBounds,
   monthLabel,
   monthsWindow,
   netWorth,
-  onBudgetAccountIdSet,
-  previousMonth,
   savingsRate,
-  spendingFromTransactions,
+  type CategorySpendRow,
   type MonthlyTrendPoint,
 } from "@/lib/metrics";
 import { DateRangePicker } from "@/components/date-range-picker";
@@ -36,6 +33,59 @@ export const dynamic = "force-dynamic";
 interface DashboardSearchParams {
   date_from?: string;
   date_to?: string;
+}
+
+function isoDaysBetween(fromIso: string, toIso: string): number {
+  // Inclusive day count.
+  const from = new Date(`${fromIso}T00:00:00Z`).getTime();
+  const to = new Date(`${toIso}T00:00:00Z`).getTime();
+  return Math.max(1, Math.round((to - from) / 86_400_000) + 1);
+}
+
+function shiftIsoDate(iso: string, deltaDays: number): string {
+  const base = new Date(`${iso}T00:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + deltaDays);
+  return base.toISOString().slice(0, 10);
+}
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Picks the comparison window for the delta arrows. When the user has
+ * "this month" selected (range = full calendar month), compare against the
+ * prior calendar month so YNAB-trained eyes see "May vs April" rather
+ * than "May vs Mar 31 – Apr 30". For any other range, fall back to the
+ * same-length window immediately preceding the selection.
+ */
+function prevPeriodBounds(
+  dateFrom: string,
+  dateTo: string,
+): { from: string; to: string } {
+  const from = new Date(`${dateFrom}T00:00:00Z`);
+  const to = new Date(`${dateTo}T00:00:00Z`);
+  const fromIsFirst = from.getUTCDate() === 1;
+  const toIsLast =
+    new Date(
+      Date.UTC(to.getUTCFullYear(), to.getUTCMonth() + 1, 0),
+    ).getUTCDate() === to.getUTCDate();
+  const sameMonth =
+    from.getUTCFullYear() === to.getUTCFullYear() &&
+    from.getUTCMonth() === to.getUTCMonth();
+  if (fromIsFirst && toIsLast && sameMonth) {
+    const prevMonthStart = new Date(
+      Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1),
+    );
+    const prevMonthEnd = new Date(
+      Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 0),
+    );
+    return { from: isoDate(prevMonthStart), to: isoDate(prevMonthEnd) };
+  }
+  const rangeDays = isoDaysBetween(dateFrom, dateTo);
+  const prevTo = shiftIsoDate(dateFrom, -1);
+  const prevFrom = shiftIsoDate(prevTo, -(rangeDays - 1));
+  return { from: prevFrom, to: prevTo };
 }
 
 export default async function DashboardPage({
@@ -59,82 +109,73 @@ export default async function DashboardPage({
 
   const selected = (await getSelectedBudgetId(budgets)) ?? budgets[0].id;
 
+  // Default range is this month; the picker writes date_from/date_to into
+  // the URL which we honor for every flow-based card on the page (KPIs +
+  // donut). Net worth is a balance, not a flow, so it ignores the range.
+  const thisMonthBounds = monthBounds(currentMonth());
+  const dateFrom = params.date_from ?? thisMonthBounds.from;
+  const dateTo = params.date_to ?? thisMonthBounds.to;
+
+  // Comparison period: prior calendar month when the user picked a full
+  // month (so "May" compares cleanly against "April"), otherwise the
+  // immediately-prior same-length window.
+  const { from: prevDateFrom, to: prevDateTo } = prevPeriodBounds(
+    dateFrom,
+    dateTo,
+  );
+
+  // Trend chart always shows the trailing 12 months ending in the current
+  // month — independent of the picker, so the user can see the macro shape
+  // even while zoomed in on a narrow range.
   const now = currentMonth();
-  const last = previousMonth(now);
-  const thisMonthBounds = monthBounds(now);
-  const lastMonthBounds = monthBounds(last);
 
-  // Donut respects the URL date range when set; otherwise uses this-month.
-  // KPIs always reflect this-month-vs-last-month for stable comparability.
-  const donutFrom = params.date_from ?? thisMonthBounds.from;
-  const donutTo = params.date_to ?? thisMonthBounds.to;
-
-  // The trend chart spans 12 months — too many transactions to roll up
-  // client-side under the `/transactions?limit=500` cap. Fetched as a
-  // pre-aggregated series so the response size is bounded by months.
-  const [accounts, recentTxns, thisMonthTxns, lastMonthTxns, trendResponse, donutTxns] =
-    await Promise.all([
-      apiFetch<AccountResponse[]>(`/accounts${qs({ budget_id: selected })}`),
-      apiFetch<TransactionResponse[]>(
-        `/transactions${qs({ budget_id: selected, limit: 10 })}`,
-      ),
-      apiFetch<TransactionResponse[]>(
-        `/transactions${qs({
-          budget_id: selected,
-          date_from: thisMonthBounds.from,
-          date_to: thisMonthBounds.to,
-          limit: 500,
-        })}`,
-      ),
-      apiFetch<TransactionResponse[]>(
-        `/transactions${qs({
-          budget_id: selected,
-          date_from: lastMonthBounds.from,
-          date_to: lastMonthBounds.to,
-          limit: 500,
-        })}`,
-      ),
-      apiFetch<MonthlyTrendResponse>(
-        `/reports/monthly-spending${qs({ budget_id: selected, months: 12 })}`,
-      ),
-      params.date_from || params.date_to
-        ? apiFetch<TransactionResponse[]>(
-            `/transactions${qs({
-              budget_id: selected,
-              date_from: donutFrom,
-              date_to: donutTo,
-              limit: 500,
-            })}`,
-          )
-        : Promise.resolve(null as TransactionResponse[] | null),
-    ]);
-
-  const onBudgetIds = onBudgetAccountIdSet(accounts);
+  const [accounts, recentTxns, summary, prevSummary, trendResponse] = await Promise.all([
+    apiFetch<AccountResponse[]>(`/accounts${qs({ budget_id: selected })}`),
+    apiFetch<TransactionResponse[]>(
+      `/transactions${qs({ budget_id: selected, limit: 10 })}`,
+    ),
+    apiFetch<PeriodSummaryResponse>(
+      `/reports/period-summary${qs({
+        budget_id: selected,
+        date_from: dateFrom,
+        date_to: dateTo,
+      })}`,
+    ),
+    apiFetch<PeriodSummaryResponse>(
+      `/reports/period-summary${qs({
+        budget_id: selected,
+        date_from: prevDateFrom,
+        date_to: prevDateTo,
+      })}`,
+    ),
+    apiFetch<MonthlyTrendResponse>(
+      `/reports/monthly-spending${qs({ budget_id: selected, months: 12 })}`,
+    ),
+  ]);
 
   const netWorthCents = netWorth(accounts);
-  const spendingThis = spendingFromTransactions(thisMonthTxns, onBudgetIds);
-  const incomeThis = incomeFromTransactions(thisMonthTxns, onBudgetIds);
-  const spendingLast = spendingFromTransactions(lastMonthTxns, onBudgetIds);
-  const incomeLast = incomeFromTransactions(lastMonthTxns, onBudgetIds);
 
-  const surplusThis = incomeThis - spendingThis;
-  const surplusLast = incomeLast - spendingLast;
-
-  const savingsThis = savingsRate(incomeThis, spendingThis);
-  const savingsLast = savingsRate(incomeLast, spendingLast);
+  // KPIs are now driven entirely by the server-side period summary so they
+  // (a) honor the date picker and (b) match the donut total below by
+  // construction (same query, same row set).
+  const spendingNow = summary.spending_cents;
+  const incomeNow = summary.income_cents;
+  const spendingPrev = prevSummary.spending_cents;
+  const incomePrev = prevSummary.income_cents;
+  const surplusNow = summary.net_income_cents;
+  const surplusPrev = prevSummary.net_income_cents;
+  const savingsNow = savingsRate(incomeNow, spendingNow);
+  const savingsPrev = savingsRate(incomePrev, spendingPrev);
 
   const netWorthDelta = null;
-  const spendingDelta = compareValues(spendingThis, spendingLast, false);
-  const surplusDelta = compareValues(surplusThis, surplusLast, true);
+  const spendingDelta = compareValues(spendingNow, spendingPrev, false);
+  const surplusDelta = compareValues(surplusNow, surplusPrev, true);
   const savingsDelta =
-    savingsThis !== null && savingsLast !== null
-      ? compareValues(savingsThis, savingsLast, true)
+    savingsNow !== null && savingsPrev !== null
+      ? compareValues(savingsNow, savingsPrev, true)
       : null;
 
-  // Convert the aggregated trend payload (1-indexed month numbers) into the
-  // 0-indexed YearMonth that the chart component expects, padding any
-  // missing months that the backend already omitted (it returns one row per
-  // requested month, so this should be a no-op in practice).
+  // Trend chart: backend monthly aggregates, no 500-limit risk.
   const trendMonths = monthsWindow(now, 12);
   const trendByKey = new Map(
     trendResponse.points.map((p) => [`${p.year}-${p.month}`, p]),
@@ -149,8 +190,19 @@ export default async function DashboardPage({
     };
   });
 
-  const donutRows = categoryBreakdown(donutTxns ?? thisMonthTxns, onBudgetIds);
-  const donutRangeLabel = `${donutFrom} → ${donutTo}`;
+  // Donut shares the period summary's by-category breakdown so the slice
+  // total equals the spending KPI. Positive-net (refund) categories are
+  // omitted from the slice list since a pie can't render negative values;
+  // refunds still show on the Categories page.
+  const donutRows: CategorySpendRow[] = summary.by_category
+    .map((row) => ({
+      category_id: row.category_id,
+      category_name: row.category_name,
+      spent_cents: -row.net_cents, // net negative → positive spend, net positive → negative
+    }))
+    .filter((r) => r.spent_cents > 0)
+    .sort((a, b) => b.spent_cents - a.spent_cents);
+  const donutRangeLabel = `${dateFrom} → ${dateTo}`;
 
   return (
     <div className="space-y-6">
@@ -158,7 +210,8 @@ export default async function DashboardPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            Net worth · this month at a glance · drill in below
+            All flow-based KPIs respect the date picker. Net worth shows the
+            current balance regardless of range.
           </p>
         </div>
         <DateRangePicker />
@@ -174,22 +227,25 @@ export default async function DashboardPage({
           valueClassName={netWorthCents < 0 ? "text-destructive" : undefined}
         />
         <KpiCard
-          label="This month spending"
-          value={formatDollars(spendingThis)}
+          label="Spending"
+          value={formatDollars(spendingNow)}
           delta={spendingDelta}
+          deltaLabel="vs prior period"
           index={1}
         />
         <KpiCard
           label="Income minus spending"
-          value={`${surplusThis >= 0 ? "" : "-"}${formatDollars(Math.abs(surplusThis))}`}
+          value={`${surplusNow >= 0 ? "" : "-"}${formatDollars(Math.abs(surplusNow))}`}
           delta={surplusDelta}
+          deltaLabel="vs prior period"
           index={2}
-          valueClassName={surplusThis < 0 ? "text-destructive" : undefined}
+          valueClassName={surplusNow < 0 ? "text-destructive" : undefined}
         />
         <KpiCard
           label="Savings rate"
-          value={savingsThis === null ? "—" : `${(savingsThis * 100).toFixed(0)}%`}
+          value={savingsNow === null ? "—" : `${(savingsNow * 100).toFixed(0)}%`}
           delta={savingsDelta}
+          deltaLabel="vs prior period"
           index={3}
         />
       </div>
@@ -197,17 +253,23 @@ export default async function DashboardPage({
       <SpendingTrendChart points={trendPoints} />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <CategoryDonutCard rows={donutRows} rangeLabel={donutRangeLabel} />
+        <CategoryDonutCard
+          rows={donutRows}
+          rangeLabel={donutRangeLabel}
+          totalCentsOverride={summary.spending_cents}
+        />
         <RecentTransactionsCard transactions={recentTxns} />
       </div>
 
       <p className="text-center text-xs text-muted-foreground">
-        Numbers reflect the currently selected budget. Definitions in{" "}
+        Spending = sum of net amounts on categorized rows over the selected
+        range (on-budget accounts, transfers excluded). Income = positive
+        amounts in the YNAB Ready-to-Assign category. Mirrors YNAB&apos;s{" "}
         <Link
           href="https://github.com/majedal01/homelab/blob/main/ynab_insights/DESIGN.md"
           className="underline"
         >
-          docs
+          Income vs. Expense report
         </Link>
         .
       </p>
