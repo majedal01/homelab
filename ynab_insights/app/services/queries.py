@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import aliased, joinedload
 from sqlalchemy.sql import Select
 
 from app.models import Account, Budget, Category, Payee, Transaction
@@ -34,16 +34,30 @@ _spending_cache: TTLCache[list["CategorySpend"]] = TTLCache(ttl_seconds=30.0)
 
 
 def _exclude_transfers[T: Select[Any]](stmt: T) -> T:
-    """Filter out transactions whose payee represents the other side of an
-    account-to-account transfer. YNAB models transfers as paired transactions
-    pointing at a synthetic payee whose `transfer_account_id` is set; those
-    are operational movements of money, not spending or income."""
-    transfer_payee = (
+    """Filter out true on-budget-to-on-budget transfers.
+
+    YNAB pairs transfers with a synthetic payee whose `transfer_account_id`
+    points at the OTHER account. A transfer is "internal" (and excluded
+    from the Income vs. Expense report) only when both accounts are
+    on-budget. When the other side is OFF-budget (loans, investments,
+    tracking accounts), YNAB treats the categorized leg as real spending
+    — paying down a car loan is a Car Payment expense even though it's
+    posted as a transfer.
+
+    Earlier this filter excluded ALL transfer-payee rows, which dropped
+    legitimate categorized outflows like the Car Payment example.
+    """
+    transfer_target = aliased(Account)
+    transfer_to_on_budget = (
         select(Payee.id)
-        .where(Payee.id == Transaction.payee_id, Payee.transfer_account_id.is_not(None))
+        .join(transfer_target, transfer_target.id == Payee.transfer_account_id)
+        .where(
+            Payee.id == Transaction.payee_id,
+            transfer_target.on_budget.is_(True),
+        )
         .exists()
     )
-    return stmt.where(~transfer_payee)
+    return stmt.where(~transfer_to_on_budget)
 
 
 @dataclass(frozen=True)

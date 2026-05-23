@@ -14,12 +14,31 @@ import type { AccountResponse, TransactionResponse } from "./api-types";
  * YNAB's built-in income category. Positive amounts tagged to it are income
  * (Ready to Assign), not spending. YNAB doesn't allow creating other income
  * categories, so a hardcoded constant is enough — kept in sync with the
- * backend's `app/services/queries.py::INCOME_CATEGORY_NAME`.
+ * backend's `app/services/queries.py::INCOME_CATEGORY_NAMES`.
  */
-export const INCOME_CATEGORY_NAME = "Inflow: Ready to Assign";
+export const INCOME_CATEGORY_NAMES = new Set([
+  "Inflow: Ready to Assign",
+  "Inflow: To Be Budgeted",
+]);
 
 function isIncomeCategory(name: string | null): boolean {
-  return name === INCOME_CATEGORY_NAME;
+  return name !== null && INCOME_CATEGORY_NAMES.has(name);
+}
+
+/**
+ * True only when this transaction is an INTERNAL transfer between two
+ * on-budget accounts. Transfers to off-budget accounts (loans, investments,
+ * tracking) are real spending in YNAB even though they're modeled as
+ * transfers, so we DON'T want to exclude them from spending aggregates.
+ */
+function isInternalTransfer(
+  t: TransactionResponse,
+  onBudgetAccountIds: Set<string>,
+): boolean {
+  return (
+    t.transfer_account_id !== null &&
+    onBudgetAccountIds.has(t.transfer_account_id)
+  );
 }
 
 // ---- date helpers -----------------------------------------------------------
@@ -83,7 +102,7 @@ export function spendingFromTransactions(
 ): number {
   let total = 0;
   for (const t of transactions) {
-    if (t.transfer_account_id) continue;
+    if (isInternalTransfer(t, onBudgetAccountIds)) continue;
     if (!onBudgetAccountIds.has(t.account_id)) continue;
     if (t.category_id === null) continue;
     if (isIncomeCategory(t.category_name)) continue;
@@ -107,7 +126,7 @@ export function incomeFromTransactions(
 ): number {
   let total = 0;
   for (const t of transactions) {
-    if (t.transfer_account_id) continue;
+    if (isInternalTransfer(t, onBudgetAccountIds)) continue;
     if (!onBudgetAccountIds.has(t.account_id)) continue;
     const isNull = t.category_id === null;
     const isIncomeCat = isIncomeCategory(t.category_name);
@@ -160,7 +179,7 @@ export function categoryBreakdown(
 ): CategorySpendRow[] {
   const byCategory = new Map<string, CategorySpendRow>();
   for (const t of transactions) {
-    if (t.transfer_account_id) continue;
+    if (isInternalTransfer(t, onBudgetAccountIds)) continue;
     if (!onBudgetAccountIds.has(t.account_id)) continue;
     // YNAB's built-in income category isn't spending — skip it entirely.
     if (isIncomeCategory(t.category_name)) continue;
