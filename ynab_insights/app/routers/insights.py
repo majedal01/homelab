@@ -141,6 +141,18 @@ async def dismiss_insight(insight_id: int, session: SessionDep) -> InsightRespon
     return _to_response(row)
 
 
+@router.post("/{insight_id}/restore", response_model=InsightResponse)
+async def restore_insight(insight_id: int, session: SessionDep) -> InsightResponse:
+    """Undo a dismiss. Backs the optimistic-UI undo toast on the feed."""
+    row = await session.get(Insight, insight_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+    if row.dismissed_at is not None:
+        row.dismissed_at = None
+        await session.commit()
+    return _to_response(row)
+
+
 @router.post("/generate", response_model=GenerateResponse)
 async def generate(
     session: SessionDep,
