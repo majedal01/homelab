@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Geist } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Nav } from "@/components/nav";
@@ -7,7 +7,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { apiFetch, getSelectedBudgetId } from "@/lib/api";
 import type { BudgetResponse } from "@/lib/api-types";
 
-const inter = Inter({
+// Geist replaces Inter from v2.4 polish. Tighter geometric sans, same
+// numeric clarity for the dashboard's tabular figures. Inter Display
+// remains the documented fallback.
+const sans = Geist({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-sans",
@@ -15,7 +18,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "YNAB Insights",
-  description: "Self-hosted budgeting dashboard backed by YNAB",
+  description: "Forward-looking analysis alongside your YNAB.",
 };
 
 export default async function RootLayout({
@@ -31,7 +34,7 @@ export default async function RootLayout({
   const selectedBudgetId = await getSelectedBudgetId(budgets);
 
   return (
-    <html lang="en" suppressHydrationWarning className={inter.variable}>
+    <html lang="en" suppressHydrationWarning className={sans.variable}>
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         <ThemeProvider
           attribute="class"
