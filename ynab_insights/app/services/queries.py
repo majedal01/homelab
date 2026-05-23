@@ -63,9 +63,18 @@ async def spending_by_category(
     start: date,
     end: date,
 ) -> list[CategorySpend]:
-    """Sum of negative-amount transactions in [start, end] grouped by category,
-    excluding account-to-account transfers. Outflows stay negative so callers
-    can render with their own sign convention."""
+    """Net spending per category over [start, end], scoped to on-budget
+    accounts and excluding transfers.
+
+    Sums BOTH inflows and outflows per category so that reimbursements
+    posted to the same category (e.g. "Reimbursable Expenses" with the
+    expense as outflow + employer payment as inflow) cancel out. Returns
+    only categories with net outflow (sum < 0); categories that net to
+    refund or zero are omitted from the spending view.
+
+    `spent_cents` stays negative (= sum of amount_cents for the category)
+    so existing callers that flip the sign for display keep working.
+    """
     stmt = (
         select(
             Category.id,
@@ -74,14 +83,17 @@ async def spending_by_category(
         )
         .select_from(Transaction)
         .outerjoin(Category, Category.id == Transaction.category_id)
+        .join(Account, Account.id == Transaction.account_id)
         .where(
             Transaction.budget_id == budget_id,
             Transaction.date >= start,
             Transaction.date <= end,
-            Transaction.amount_cents < 0,
+            Account.on_budget.is_(True),
+            Account.closed.is_(False),
         )
         .group_by(Category.id, Category.name)
-        .order_by("total")  # most-negative first = highest spend first
+        .having(func.coalesce(func.sum(Transaction.amount_cents), 0) < 0)
+        .order_by("total")  # most-negative first = highest net spend first
     )
     stmt = _exclude_transfers(stmt)
     result = await session.execute(stmt)
