@@ -17,12 +17,16 @@ import { SubscriptionAuditCard } from "@/components/insights/cards/subscription-
 import { SpendingAnomalyCard } from "@/components/insights/cards/spending-anomaly-card";
 import { CashflowForecastCard } from "@/components/insights/cards/cashflow-forecast-card";
 import { GoalTrajectoryCard } from "@/components/insights/cards/goal-trajectory-card";
+import { CategoryDriftCard } from "@/components/insights/cards/category-drift-card";
+import { YearInMoneyCard } from "@/components/insights/cards/year-in-money-card";
 
 const CARD_TYPE_LABEL: Record<InsightResponse["card_type"], string> = {
   subscription_audit: "Subscription",
   spending_anomaly: "Anomaly",
   cashflow_forecast: "Forecast",
   goal_trajectory: "Goal",
+  category_drift: "Drift",
+  year_in_money: "Year in money",
 };
 
 function CardBody({ insight }: { insight: InsightResponse }) {
@@ -36,6 +40,10 @@ function CardBody({ insight }: { insight: InsightResponse }) {
       return <CashflowForecastCard data={data} />;
     case "goal_trajectory":
       return <GoalTrajectoryCard data={data} />;
+    case "category_drift":
+      return <CategoryDriftCard data={data} />;
+    case "year_in_money":
+      return <YearInMoneyCard data={data} />;
   }
 }
 

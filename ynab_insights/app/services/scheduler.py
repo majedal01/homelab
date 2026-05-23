@@ -19,6 +19,7 @@ from app.insights.category_drift import CategoryDriftGenerator
 from app.insights.goal_trajectory import GoalTrajectoryGenerator
 from app.insights.spending_anomaly import SpendingAnomalyGenerator
 from app.insights.subscription_audit import SubscriptionAuditGenerator
+from app.insights.year_in_money import YearInMoneyGenerator
 from app.services.queries import list_budgets_ordered
 from app.services.sync import SyncInProgressError, run_sync
 
@@ -55,6 +56,13 @@ _INSIGHT_JOBS: tuple[tuple[str, type[InsightGenerator], dict[str, object]], ...]
         "insights_category_drift",
         CategoryDriftGenerator,
         {"day": 1, "hour": 3, "minute": 50},
+    ),
+    # Year in money is a no-op except on Jan 1 + calendar-quarter mornings;
+    # daily cadence lets the generator self-gate via `_period_bounds`.
+    (
+        "insights_year_in_money",
+        YearInMoneyGenerator,
+        {"hour": 4, "minute": 0},
     ),
 )
 

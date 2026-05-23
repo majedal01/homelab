@@ -103,7 +103,9 @@ export type CardType =
   | "subscription_audit"
   | "spending_anomaly"
   | "cashflow_forecast"
-  | "goal_trajectory";
+  | "goal_trajectory"
+  | "category_drift"
+  | "year_in_money";
 
 export type Cadence = "weekly" | "monthly" | "quarterly" | "yearly";
 
@@ -184,11 +186,64 @@ export interface GoalTrajectoryData {
   on_track: boolean | null;
 }
 
+export interface CategoryDriftData {
+  card_type: "category_drift";
+  category_id: string;
+  category_name: string;
+  trailing_quarter_avg_cents: number;
+  prior_three_quarters_avg_cents: number;
+  drift_pct: number;
+  drift_cents_per_month: number;
+  direction: "up" | "down";
+  monthly_nets_cents: number[]; // 12 oldest-first, positive = spend
+}
+
+export interface YearInMoneyTopCategoryEntry {
+  category_id: string | null;
+  category_name: string;
+  net_spend_cents: number;
+}
+
+export interface YearInMoneyTopPayeeEntry {
+  payee_id: string | null;
+  payee_name: string;
+  transaction_count: number;
+  amount_cents: number;
+}
+
+export interface YearInMoneyBiggestSingleEntry {
+  transaction_id: string;
+  date: string;
+  amount_cents: number;
+  payee_name: string | null;
+  category_name: string | null;
+}
+
+export interface YearInMoneyData {
+  card_type: "year_in_money";
+  period_label: string;
+  period_kind: "annual" | "quarterly";
+  period_start: string;
+  period_end: string;
+  total_income_cents: number;
+  total_spending_cents: number;
+  net_income_cents: number;
+  savings_rate: number | null;
+  top_categories: YearInMoneyTopCategoryEntry[];
+  top_payees: YearInMoneyTopPayeeEntry[];
+  biggest_single: YearInMoneyBiggestSingleEntry | null;
+  savings_rate_trend: (number | null)[];
+  largest_category_swing: YearInMoneyTopCategoryEntry | null;
+  narrative: string;
+}
+
 export type InsightStructuredData =
   | SubscriptionAuditData
   | SpendingAnomalyData
   | CashflowForecastData
-  | GoalTrajectoryData;
+  | GoalTrajectoryData
+  | CategoryDriftData
+  | YearInMoneyData;
 
 export interface InsightResponse {
   id: number;

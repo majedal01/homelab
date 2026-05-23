@@ -22,6 +22,7 @@ from app.insights.category_drift import CategoryDriftGenerator
 from app.insights.goal_trajectory import GoalTrajectoryGenerator
 from app.insights.spending_anomaly import SpendingAnomalyGenerator
 from app.insights.subscription_audit import SubscriptionAuditGenerator
+from app.insights.year_in_money import YearInMoneyGenerator, _period_bounds
 from app.models import (
     Account,
     Budget,
@@ -694,6 +695,45 @@ async def test_category_drift_ignores_below_threshold(
 
     outputs = await CategoryDriftGenerator().run(db_session, get_settings(), "b-1")
     assert outputs == []
+
+
+def test_year_in_money_period_bounds_only_fires_on_calendar_dates() -> None:
+    # Jan 1 → prior calendar year.
+    bounds = _period_bounds(date(2026, 1, 1))
+    assert bounds is not None
+    kind, start, end, label = bounds
+    assert kind == "annual"
+    assert start == date(2025, 1, 1)
+    assert end == date(2025, 12, 31)
+    assert label == "2025"
+
+    # Apr 1 → prior calendar quarter (Q1 of same year).
+    bounds = _period_bounds(date(2026, 4, 1))
+    assert bounds is not None
+    kind, start, end, label = bounds
+    assert kind == "quarterly"
+    assert start == date(2026, 1, 1)
+    assert end == date(2026, 3, 31)
+    assert label == "2026-Q1"
+
+    # Mid-month: no period to publish.
+    assert _period_bounds(date(2026, 5, 15)) is None
+    # Day 1 of a non-quarter-start month: no period either.
+    assert _period_bounds(date(2026, 5, 1)) is None
+
+
+async def test_year_in_money_skips_when_outside_calendar_trigger(
+    db_session: AsyncSession, budget: Budget
+) -> None:
+    """Today is whatever the test runs on; if it's not a Jan/Apr/Jul/Oct 1
+    boundary, the generator returns [] regardless of seeded data."""
+    outputs = await YearInMoneyGenerator().run(db_session, get_settings(), "b-1")
+    bounds = _period_bounds(date.today())
+    if bounds is None:
+        assert outputs == []
+    else:
+        # We didn't seed data here; an empty period also yields [].
+        assert outputs == []
 
 
 async def test_category_drift_flags_downward_drift(

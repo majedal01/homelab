@@ -16,6 +16,7 @@ from app.insights import category_drift as _category_drift  # noqa: F401
 from app.insights import goal_trajectory as _goal_trajectory  # noqa: F401
 from app.insights import spending_anomaly as _spending_anomaly  # noqa: F401
 from app.insights import subscription_audit as _subscription_audit  # noqa: F401
+from app.insights import year_in_money as _year_in_money  # noqa: F401
 
 # Public surface re-exported so callers can `from app.insights import ...`.
 from app.insights.base import (
