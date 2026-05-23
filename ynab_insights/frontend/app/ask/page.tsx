@@ -52,6 +52,18 @@ function historyFor(turns: Turn[]): { role: "user" | "assistant"; content: strin
 }
 
 export default function AskPage() {
+  // `useSearchParams` opts the page out of static rendering; Next 15 requires
+  // any caller to sit inside a Suspense boundary. Wrap the inner client tree
+  // so the static prerender of `/ask` succeeds while the param-aware logic
+  // streams in on hydration.
+  return (
+    <React.Suspense fallback={null}>
+      <AskPageInner />
+    </React.Suspense>
+  );
+}
+
+function AskPageInner() {
   const searchParams = useSearchParams();
   const [turns, setTurns] = React.useState<Turn[]>(() => loadTurns());
   const [input, setInput] = React.useState("");

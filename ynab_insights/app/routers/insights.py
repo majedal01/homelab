@@ -36,6 +36,19 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
+def _utc(dt: datetime | None) -> datetime | None:
+    """Normalize naive datetimes to UTC. SQLite (used in tests) drops the
+    timezone on round-trip even for `DateTime(timezone=True)` columns, so
+    a freshly-set tz-aware value and a re-read value would otherwise
+    serialize differently. Postgres preserves tz natively; this is a no-op
+    there."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 def _to_response(row: Insight) -> InsightResponse:
     return InsightResponse(
         id=row.id,
@@ -45,9 +58,9 @@ def _to_response(row: Insight) -> InsightResponse:
         title=row.title,
         summary=row.summary,
         structured_data=row.structured_data,  # type: ignore[arg-type]
-        generated_at=row.generated_at,
-        refreshed_at=row.refreshed_at,
-        dismissed_at=row.dismissed_at,
+        generated_at=_utc(row.generated_at),  # type: ignore[arg-type]
+        refreshed_at=_utc(row.refreshed_at),  # type: ignore[arg-type]
+        dismissed_at=_utc(row.dismissed_at),
         llm_enhanced=row.llm_enhanced,
     )
 
@@ -97,8 +110,8 @@ async def list_runs(
         InsightRunResponse(
             id=r.id,
             card_type=r.card_type,
-            started_at=r.started_at,
-            finished_at=r.finished_at,
+            started_at=_utc(r.started_at),  # type: ignore[arg-type]
+            finished_at=_utc(r.finished_at),
             status=r.status,
             duration_ms=r.duration_ms,
             insights_created=r.insights_created,
