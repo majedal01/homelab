@@ -39,12 +39,20 @@ export function CountUp({
     const reduce = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
-    if (reduce) {
+
+    // Once the in-view animation has played once, subsequent value changes
+    // (e.g. user picks a new date range) snap straight to the new value.
+    // Re-animating on every filter change would feel laggy.
+    if (reduce || playedRef.current) {
       setDisplay(format(value));
       return;
     }
+
     const el = ref.current;
-    if (!el) return;
+    if (!el) {
+      setDisplay(format(value));
+      return;
+    }
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];

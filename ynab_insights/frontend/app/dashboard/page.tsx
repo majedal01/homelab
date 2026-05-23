@@ -131,8 +131,15 @@ export default async function DashboardPage({
 
   const [accounts, recentTxns, summary, prevSummary, trendResponse] = await Promise.all([
     apiFetch<AccountResponse[]>(`/accounts${qs({ budget_id: selected })}`),
+    // Recent-transactions list mirrors the date picker so this card
+    // doesn't disagree with the donut and KPIs above it.
     apiFetch<TransactionResponse[]>(
-      `/transactions${qs({ budget_id: selected, limit: 10 })}`,
+      `/transactions${qs({
+        budget_id: selected,
+        date_from: dateFrom,
+        date_to: dateTo,
+        limit: 10,
+      })}`,
     ),
     apiFetch<PeriodSummaryResponse>(
       `/reports/period-summary${qs({
