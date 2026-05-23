@@ -25,6 +25,7 @@ const NAV_ITEMS: { href: string; label: string }[] = [
   { href: "/accounts", label: "Accounts" },
   { href: "/categories", label: "Categories" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/reports", label: "Reports" },
 ];
 
 function NavLink({

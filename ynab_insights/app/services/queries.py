@@ -270,6 +270,13 @@ class CategoryNet:
 
 
 @dataclass(frozen=True)
+class IncomeSource:
+    payee_id: str | None
+    payee_name: str | None
+    amount_cents: int  # positive total for the period
+
+
+@dataclass(frozen=True)
 class PeriodSummary:
     date_from: date
     date_to: date
@@ -278,6 +285,14 @@ class PeriodSummary:
     net_income_cents: int  # income - spending
     transaction_count: int
     by_category: list[CategoryNet]  # signed nets per expense category
+    by_income_source: list[IncomeSource]  # income broken out by payee
+    # Diagnostics: ALL on-budget non-transfer activity, regardless of
+    # category. Used by the reconciliation page to surface what's hiding
+    # in null-category buckets when the YNAB-style totals don't tie out.
+    gross_outflow_cents: int  # sum of every negative amount, positive number
+    gross_inflow_cents: int  # sum of every positive amount
+    uncategorized_outflow_cents: int  # negatives with category_id=null
+    uncategorized_inflow_cents: int  # positives with category_id=null
 
 
 async def period_summary(
@@ -360,11 +375,69 @@ async def period_summary(
         .group_by(Category.id, Category.name)
         .order_by("net")
     )
+    by_payee_stmt = _exclude_transfers(
+        select(
+            Payee.id,
+            Payee.name,
+            func.coalesce(func.sum(Transaction.amount_cents), 0).label("amount"),
+        )
+        .select_from(Transaction)
+        .outerjoin(Payee, Payee.id == Transaction.payee_id)
+        .outerjoin(Category, Category.id == Transaction.category_id)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(
+            *base_filter,
+            Transaction.amount_cents > 0,
+            or_(
+                Transaction.category_id.is_(None),
+                Category.name.in_(INCOME_CATEGORY_NAMES),
+            ),
+        )
+        .group_by(Payee.id, Payee.name)
+        .order_by(func.sum(Transaction.amount_cents).desc())
+    )
+    gross_outflow_stmt = _exclude_transfers(
+        select(func.coalesce(func.sum(-Transaction.amount_cents), 0))
+        .select_from(Transaction)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(*base_filter, Transaction.amount_cents < 0)
+    )
+    gross_inflow_stmt = _exclude_transfers(
+        select(func.coalesce(func.sum(Transaction.amount_cents), 0))
+        .select_from(Transaction)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(*base_filter, Transaction.amount_cents > 0)
+    )
+    uncat_outflow_stmt = _exclude_transfers(
+        select(func.coalesce(func.sum(-Transaction.amount_cents), 0))
+        .select_from(Transaction)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(
+            *base_filter,
+            Transaction.amount_cents < 0,
+            Transaction.category_id.is_(None),
+        )
+    )
+    uncat_inflow_stmt = _exclude_transfers(
+        select(func.coalesce(func.sum(Transaction.amount_cents), 0))
+        .select_from(Transaction)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(
+            *base_filter,
+            Transaction.amount_cents > 0,
+            Transaction.category_id.is_(None),
+        )
+    )
 
     income = (await session.execute(income_stmt)).scalar_one()
     spending = (await session.execute(spending_stmt)).scalar_one()
     count = (await session.execute(count_stmt)).scalar_one()
     by_cat_rows = (await session.execute(by_category_stmt)).all()
+    by_payee_rows = (await session.execute(by_payee_stmt)).all()
+    gross_outflow = (await session.execute(gross_outflow_stmt)).scalar_one()
+    gross_inflow = (await session.execute(gross_inflow_stmt)).scalar_one()
+    uncat_outflow = (await session.execute(uncat_outflow_stmt)).scalar_one()
+    uncat_inflow = (await session.execute(uncat_inflow_stmt)).scalar_one()
 
     income_int = int(income)
     spending_int = int(spending)
@@ -383,6 +456,18 @@ async def period_summary(
             )
             for row in by_cat_rows
         ],
+        by_income_source=[
+            IncomeSource(
+                payee_id=row.id,
+                payee_name=row.name,
+                amount_cents=int(row.amount),
+            )
+            for row in by_payee_rows
+        ],
+        gross_outflow_cents=int(gross_outflow),
+        gross_inflow_cents=int(gross_inflow),
+        uncategorized_outflow_cents=int(uncat_outflow),
+        uncategorized_inflow_cents=int(uncat_inflow),
     )
 
 

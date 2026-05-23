@@ -237,6 +237,12 @@ export interface CategoryNetResponse {
   net_cents: number; // negative = net outflow, positive = net refund
 }
 
+export interface IncomeSourceResponse {
+  payee_id: string | null;
+  payee_name: string | null;
+  amount_cents: number;
+}
+
 export interface PeriodSummaryResponse {
   date_from: string;
   date_to: string;
@@ -245,4 +251,9 @@ export interface PeriodSummaryResponse {
   net_income_cents: number;
   transaction_count: number;
   by_category: CategoryNetResponse[];
+  by_income_source: IncomeSourceResponse[];
+  gross_outflow_cents: number;
+  gross_inflow_cents: number;
+  uncategorized_outflow_cents: number;
+  uncategorized_inflow_cents: number;
 }
