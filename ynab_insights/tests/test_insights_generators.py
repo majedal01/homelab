@@ -370,23 +370,99 @@ async def test_cashflow_forecast_uses_history_to_project(
     assert payload["projected_90d_cents"] == 100_000 + 100 * 90
 
 
-async def test_cashflow_forecast_empty_when_no_history(
+async def test_cashflow_forecast_flat_projection_when_no_history(
     db_session: AsyncSession, budget: Budget
 ) -> None:
+    """With on-budget accounts but no activity, the forecast is still produced
+    so the user can see today's balance; the projection is just flat."""
     db_session.add(
         Account(
             id="a-1",
             budget_id="b-1",
             name="Checking",
             type="checking",
-            balance_cents=0,
+            balance_cents=42_000,
             on_budget=True,
             closed=False,
         )
     )
     await db_session.commit()
     outputs = await CashflowForecastGenerator().run(db_session, get_settings(), "b-1")
+    assert len(outputs) == 1
+    payload = outputs[0].structured_data
+    assert payload["starting_balance_cents"] == 42_000
+    assert payload["daily_net_cents"] == 0
+    assert payload["projected_90d_cents"] == 42_000
+    assert payload["top_spending_categories"] == []
+
+
+async def test_cashflow_forecast_returns_empty_without_on_budget_accounts(
+    db_session: AsyncSession, budget: Budget
+) -> None:
+    """If the only accounts are tracking (off-budget), there is no on-budget
+    cashflow to project; the generator returns nothing."""
+    db_session.add(
+        Account(
+            id="a-tracking",
+            budget_id="b-1",
+            name="Investment",
+            type="otherAsset",
+            balance_cents=1_000_000,
+            on_budget=False,
+            closed=False,
+        )
+    )
+    await db_session.commit()
+    outputs = await CashflowForecastGenerator().run(db_session, get_settings(), "b-1")
     assert outputs == []
+
+
+async def test_cashflow_forecast_excludes_tracking_account_flows(
+    db_session: AsyncSession, budget: Budget
+) -> None:
+    """A $-100k tracking-account transaction (e.g. an investment buy) must
+    NOT drag the projection negative. Only on-budget activity counts."""
+    db_session.add_all(
+        [
+            Account(
+                id="a-1",
+                budget_id="b-1",
+                name="Checking",
+                type="checking",
+                balance_cents=50_000,
+                on_budget=True,
+                closed=False,
+            ),
+            Account(
+                id="a-tracking",
+                budget_id="b-1",
+                name="Brokerage",
+                type="otherAsset",
+                balance_cents=0,
+                on_budget=False,
+                closed=False,
+            ),
+            Transaction(
+                id="t-buy",
+                budget_id="b-1",
+                account_id="a-tracking",
+                category_id=None,
+                payee_id=None,
+                date=_today() - timedelta(days=10),
+                amount_cents=-10_000_000,  # $-100k investment buy
+                memo="stock purchase",
+                cleared="cleared",
+                approved=True,
+            ),
+        ]
+    )
+    await db_session.commit()
+    outputs = await CashflowForecastGenerator().run(db_session, get_settings(), "b-1")
+    assert len(outputs) == 1
+    payload = outputs[0].structured_data
+    # Projection only reflects on-budget activity (none here), so it stays flat.
+    assert payload["daily_net_cents"] == 0
+    assert payload["projected_90d_cents"] == 50_000
 
 
 async def test_goal_trajectory_emits_per_active_goal(

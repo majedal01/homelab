@@ -54,6 +54,13 @@ export function CashflowForecastDetail({
           adjustments below.
         </div>
       </div>
+      <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
+        Math: starting balance ({formatDollars(data.starting_balance_cents)})
+        + net daily cashflow ({formatDollars(data.daily_net_cents)}/day,
+        averaged across your last {data.lookback_days} days of on-budget
+        income and spending) × number of days. Tracking accounts and
+        transfers are excluded.
+      </div>
       <div>
         <h2 className="text-sm font-semibold tracking-tight">
           Trim your top spending categories
