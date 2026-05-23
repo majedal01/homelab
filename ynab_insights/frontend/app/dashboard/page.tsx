@@ -210,8 +210,7 @@ export default async function DashboardPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            All flow-based KPIs respect the date picker. Net worth shows the
-            current balance regardless of range.
+            The numbers, for the selected range.
           </p>
         </div>
         <DateRangePicker />
@@ -221,6 +220,8 @@ export default async function DashboardPage({
         <KpiCard
           label="Net worth"
           value={formatDollars(netWorthCents)}
+          numericValue={netWorthCents}
+          formatAnimated={formatDollars}
           delta={netWorthDelta}
           deltaLabel="across all open accounts"
           index={0}
@@ -229,6 +230,8 @@ export default async function DashboardPage({
         <KpiCard
           label="Spending"
           value={formatDollars(spendingNow)}
+          numericValue={spendingNow}
+          formatAnimated={formatDollars}
           delta={spendingDelta}
           deltaLabel="vs prior period"
           index={1}
@@ -236,6 +239,10 @@ export default async function DashboardPage({
         <KpiCard
           label="Income minus spending"
           value={`${surplusNow >= 0 ? "" : "-"}${formatDollars(Math.abs(surplusNow))}`}
+          numericValue={surplusNow}
+          formatAnimated={(v) =>
+            `${v >= 0 ? "" : "-"}${formatDollars(Math.abs(v))}`
+          }
           delta={surplusDelta}
           deltaLabel="vs prior period"
           index={2}
@@ -244,6 +251,10 @@ export default async function DashboardPage({
         <KpiCard
           label="Savings rate"
           value={savingsNow === null ? "—" : `${(savingsNow * 100).toFixed(0)}%`}
+          numericValue={
+            savingsNow === null ? undefined : Math.round(savingsNow * 100)
+          }
+          formatAnimated={(v) => `${v}%`}
           delta={savingsDelta}
           deltaLabel="vs prior period"
           index={3}
@@ -262,9 +273,7 @@ export default async function DashboardPage({
       </div>
 
       <p className="text-center text-xs text-muted-foreground">
-        Spending = sum of net amounts on categorized rows over the selected
-        range (on-budget accounts, transfers excluded). Income = positive
-        amounts in the YNAB Ready-to-Assign category. Mirrors YNAB&apos;s{" "}
+        Mirrors YNAB&apos;s{" "}
         <Link
           href="https://github.com/majedal01/homelab/blob/main/ynab_insights/DESIGN.md"
           className="underline"

@@ -26,6 +26,15 @@ export async function dismissInsight(id: number): Promise<void> {
   revalidatePath(`/insights/${id}`);
 }
 
+/** Server action: undo a dismiss. Backs the toast's "Undo" button. */
+export async function restoreInsight(id: number): Promise<void> {
+  await apiFetch<InsightResponse>(`/api/insights/${id}/restore`, {
+    method: "POST",
+  });
+  revalidatePath("/insights");
+  revalidatePath(`/insights/${id}`);
+}
+
 /**
  * Server action: fire every registered generator. Looks up the resulting
  * `InsightRun` rows so the caller can show created/updated counts (otherwise

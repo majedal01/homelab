@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { MessageSquare, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Aurora } from "@/components/brand/aurora";
 import { Button } from "@/components/ui/button";
 import { Composer } from "@/components/ask/composer";
 import { SuggestedChips } from "@/components/ask/suggested-chips";
@@ -247,7 +248,7 @@ function AskPageInner() {
               : t,
           ),
         );
-        toast.error("Ask failed", { description: message });
+        toast.error("Couldn't answer.", { description: message });
       } finally {
         abortRef.current = null;
       }
@@ -265,13 +266,14 @@ function AskPageInner() {
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <>
+      <Aurora variant="quiet" />
+      <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Ask</h1>
           <p className="text-sm text-muted-foreground">
-            Natural-language questions about your YNAB data. The agent calls
-            read-only tools against the local database to answer.
+            Questions about your money, in plain language.
           </p>
         </div>
         {turns.length ? (
@@ -293,11 +295,9 @@ function AskPageInner() {
             <div className="rounded-full bg-muted p-3 text-muted-foreground">
               <MessageSquare className="h-5 w-5" />
             </div>
-            <h3 className="text-sm font-medium">Ask anything about your money</h3>
+            <h3 className="text-sm font-medium">Ask anything about your money.</h3>
             <p className="max-w-md text-xs text-muted-foreground">
-              Multi-turn conversation, streaming responses, visible tool calls.
-              The agent answers from your synced data. No questions leave the
-              tailnet.
+              Answers come from your synced data. Nothing leaves your tailnet.
             </p>
           </div>
           <SuggestedChips
@@ -335,6 +335,7 @@ function AskPageInner() {
           autoFocus
         />
       </div>
-    </div>
+      </div>
+    </>
   );
 }

@@ -81,6 +81,7 @@ async def list_insights(
     session: SessionDep,
     settings: SettingsDep,
     budget_id: Annotated[str | None, Query()] = None,
+    card_type: Annotated[str | None, Query()] = None,
     include_dismissed: Annotated[bool, Query()] = False,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -91,6 +92,8 @@ async def list_insights(
     stmt = select(Insight).where(Insight.budget_id == resolved)
     if not include_dismissed:
         stmt = stmt.where(Insight.dismissed_at.is_(None))
+    if card_type is not None:
+        stmt = stmt.where(Insight.card_type == card_type)
     stmt = stmt.order_by(Insight.refreshed_at.desc(), Insight.id.desc()).limit(limit).offset(offset)
     rows = (await session.execute(stmt)).scalars().all()
     return [_to_response(r) for r in rows]
@@ -137,6 +140,18 @@ async def dismiss_insight(insight_id: int, session: SessionDep) -> InsightRespon
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
     if row.dismissed_at is None:
         row.dismissed_at = datetime.now(UTC)
+        await session.commit()
+    return _to_response(row)
+
+
+@router.post("/{insight_id}/restore", response_model=InsightResponse)
+async def restore_insight(insight_id: int, session: SessionDep) -> InsightResponse:
+    """Undo a dismiss. Backs the optimistic-UI undo toast on the feed."""
+    row = await session.get(Insight, insight_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+    if row.dismissed_at is not None:
+        row.dismissed_at = None
         await session.commit()
     return _to_response(row)
 

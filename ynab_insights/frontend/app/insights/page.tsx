@@ -1,5 +1,6 @@
 import { apiFetch, getSelectedBudgetId, qs } from "@/lib/api";
 import type { BudgetResponse, InsightResponse } from "@/lib/api-types";
+import { Aurora } from "@/components/brand/aurora";
 import { InsightFeed } from "@/components/insights/feed";
 import { RegenerateButton } from "@/components/insights/regenerate-button";
 
@@ -10,6 +11,7 @@ const PAGE_SIZE = 20;
 interface InsightsSearchParams {
   offset?: string;
   include_dismissed?: string;
+  card_type?: string;
 }
 
 export default async function InsightsPage({
@@ -28,6 +30,7 @@ export default async function InsightsPage({
   const insights = await apiFetch<InsightResponse[]>(
     `/api/insights${qs({
       budget_id: selected ?? undefined,
+      card_type: params.card_type ?? undefined,
       include_dismissed: includeDismissed,
       limit: PAGE_SIZE + 1,
       offset,
@@ -38,19 +41,21 @@ export default async function InsightsPage({
   const visible = insights.slice(0, PAGE_SIZE);
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
+    <>
+      <Aurora variant="primary" />
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
           <p className="text-sm text-muted-foreground">
-            Forward-looking analysis, pattern detection, and coaching. Cards
-            refresh automatically; you can also regenerate on demand.
+            What&apos;s worth your attention this week.
           </p>
         </div>
         {selected ? <RegenerateButton budgetId={selected} /> : null}
       </div>
 
       <InsightFeed insights={visible} offset={offset} hasMore={hasMore} />
-    </div>
+      </div>
+    </>
   );
 }

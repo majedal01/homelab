@@ -485,6 +485,96 @@ async def period_summary(
     )
 
 
+@dataclass(frozen=True)
+class CategoryMonthlyHistory:
+    """Per-category history of monthly nets over the lookback window."""
+
+    category_id: str
+    category_name: str
+    # Oldest first. Each entry is the net for one calendar month, in cents.
+    monthly_nets_cents: list[int]
+
+
+async def category_monthly_history(
+    session: AsyncSession,
+    budget_id: str,
+    months: int,
+) -> list[CategoryMonthlyHistory]:
+    """Per-category monthly net spending across the trailing `months`
+    calendar months ending in the current month, oldest first.
+
+    Backs the Category Drift generator. Issues one query per month —
+    same shape as `monthly_trend` — so it's portable across Postgres
+    and SQLite without dialect-specific date-part functions.
+    """
+    from calendar import monthrange
+
+    if months <= 0:
+        return []
+
+    starts = _month_starts_back(date.today(), months)
+
+    # Discover the expense categories that had any activity in the window
+    # so we don't return a row for every category in the budget.
+    overall_stmt = _exclude_transfers(
+        select(Category.id, Category.name)
+        .select_from(Transaction)
+        .outerjoin(Category, Category.id == Transaction.category_id)
+        .join(Account, Account.id == Transaction.account_id)
+        .where(
+            Transaction.budget_id == budget_id,
+            Transaction.date >= starts[0],
+            Transaction.date
+            <= date(
+                starts[-1].year, starts[-1].month, monthrange(starts[-1].year, starts[-1].month)[1]
+            ),
+            Transaction.category_id.is_not(None),
+            Category.name.notin_(INCOME_CATEGORY_NAMES),
+            Account.on_budget.is_(True),
+        )
+        .group_by(Category.id, Category.name)
+    )
+    active = (await session.execute(overall_stmt)).all()
+    if not active:
+        return []
+
+    matrix: dict[str, dict[tuple[int, int], int]] = {row.id: {} for row in active}
+    names: dict[str, str] = {row.id: row.name for row in active}
+
+    for ms in starts:
+        me = date(ms.year, ms.month, monthrange(ms.year, ms.month)[1])
+        per_cat_stmt = _exclude_transfers(
+            select(
+                Category.id,
+                func.coalesce(func.sum(Transaction.amount_cents), 0).label("net"),
+            )
+            .select_from(Transaction)
+            .outerjoin(Category, Category.id == Transaction.category_id)
+            .join(Account, Account.id == Transaction.account_id)
+            .where(
+                Transaction.budget_id == budget_id,
+                Transaction.date >= ms,
+                Transaction.date <= me,
+                Transaction.category_id.is_not(None),
+                Category.name.notin_(INCOME_CATEGORY_NAMES),
+                Account.on_budget.is_(True),
+            )
+            .group_by(Category.id)
+        )
+        for row in (await session.execute(per_cat_stmt)).all():
+            if row.id in matrix:
+                matrix[row.id][(ms.year, ms.month)] = int(row.net)
+
+    return [
+        CategoryMonthlyHistory(
+            category_id=cat_id,
+            category_name=names[cat_id],
+            monthly_nets_cents=[matrix[cat_id].get((ms.year, ms.month), 0) for ms in starts],
+        )
+        for cat_id in matrix
+    ]
+
+
 async def cached_spending_by_category(
     session: AsyncSession,
     budget_id: str,

@@ -695,3 +695,242 @@ If volume ever becomes a problem the route can switch to keyset on
 - Per-card-type user preferences (snooze, mute, threshold tuning).
 - Email digest, sharing, cancellation deep-links from Subscription
   Audit cards.
+
+## v2.4 Polish + new card types
+
+This phase continues the Insights Feed work. The previous PR shipped the
+framework and four card types; this one adds two more (Category Drift,
+Year in Money), takes the visual layer from "shadcn default" to "built",
+and does a copy pass across the app and the docs.
+
+### Visual identity
+
+**Mark.** A "constellation" — 5–7 dots connected by hairline strokes,
+asymmetric so it leans subtly forward. Single-stroke, `currentColor` so
+it inherits text color and adapts cleanly across themes. Three lockups
+ship: full (mark + wordmark side by side), mark-only (favicon, social
+preview), wordmark-only (footer).
+
+The reference set is Linear, Arc, and Vercel. The common thread:
+restrained, geometric, no skeuomorphism, no gradient bling. The
+constellation choice gives "insights" a small visual anchor (look up,
+find patterns) without being literal about finance.
+
+**Wordmark typography.** Geist (Vercel's typeface) — sans, geometric,
+modern, free via Google Fonts. Falls back to Inter Display. Sentence
+case ("YNAB Insights", not all-caps). Slightly tighter letter-spacing
+than body text.
+
+**Favicons.** Generated from the mark-only variant at 16/32/64/128/256.
+The 16/32 versions need pixel-perfect tweaks (the hairlines disappear at
+small sizes) so the favicon uses a stroke-widened version of the same
+geometry.
+
+### Aurora background
+
+Three overlapping `radial-gradient` washes, each on its own absolutely-
+positioned div with `filter: blur(140px)` and slow `transform: translate`
+animation (40s+, easeInOut, infinite, alternating). The whole stack sits
+inside a fixed-position container at `z-index: -1` so it never affects
+layout or hit-testing.
+
+**Palette** (dark mode primary, light mode fainter):
+
+| Wash | Dark mode (rgba) | Light mode (rgba) |
+| --- | --- | --- |
+| Indigo  | `99 102 241 / 0.18` (`indigo-500`)  | `99 102 241 / 0.06` |
+| Violet  | `139 92 246 / 0.14` (`violet-500`)  | `139 92 246 / 0.05` |
+| Cyan    | `34 211 238 / 0.10` (`cyan-400`)    | `34 211 238 / 0.04` |
+
+These three sit cleanly together because they all sit on the
+indigo→cyan arc — a single-temperature palette reads "premium" instead
+of "fruit basket". Background body color stays `bg-background`
+underneath so the washes are additive, not dominant.
+
+**Variants.**
+
+- `<Aurora variant="primary" />` — feed page only.
+- `<Aurora variant="quiet" />` — detail views and Ask; one wash, lower
+  opacity, no motion (animation removed via `prefers-reduced-motion`
+  too).
+- Everywhere else: no aurora.
+
+Performance is paid up-front: the gradients are GPU-composited and the
+motion uses only `transform`, so paint cost stays at zero after first
+render. No JavaScript involvement.
+
+### Motion tokens
+
+Centralized in `frontend/lib/motion.ts`. A single source of truth so
+"feels too snappy" / "feels too sluggish" is a one-line change:
+
+```ts
+export const MOTION = {
+  // Durations (ms)
+  d: { instant: 120, fast: 200, base: 280, slow: 420, hero: 680 },
+  // Easings
+  e: {
+    out: [0.16, 1, 0.3, 1],     // expo out — primary card/detail spring
+    inOut: [0.4, 0, 0.2, 1],    // material standard
+    spring: { type: "spring", stiffness: 380, damping: 32 },
+  },
+  // Stagger
+  stagger: 0.05, // 50ms between siblings (card entrance)
+} as const;
+```
+
+### Six interactions
+
+1. **Page transitions.** Card → detail uses Framer Motion's `layoutId`
+   to morph the card frame into the detail header. Spring physics
+   (`MOTION.e.spring`).
+2. **Card entrance stagger.** Cards fade-and-slide in (`y: 8 → 0`,
+   `opacity: 0 → 1`) with `MOTION.stagger` between siblings, `MOTION.e.out`
+   easing, `MOTION.d.base` duration. Triggered once on mount.
+3. **Card hover.** 2px lift via `translate-y-0.5`, soft shadow expansion
+   (`shadow-sm → shadow-md`), optional 1px primary-tinted border. No
+   `scale` transforms — they betray "stock motion library" tells.
+4. **Number count-up.** KPI numbers tween from 0 to their target value
+   over 800ms using a custom easing that frontloads the motion (most of
+   the value reveals in the first 400ms, the last digit settles in the
+   tail). Once per card lifetime, gated on `IntersectionObserver`.
+5. **Dismiss animation.** Card slides right (`x: 0 → 120%`) and fades,
+   ~`MOTION.d.fast`. Optimistic UI removes from feed immediately; a
+   bottom-right toast shows "Dismissed. Undo (5s)". Reverting calls
+   `POST /api/insights/{id}/restore` (new endpoint that nulls
+   `dismissed_at`).
+6. **Command palette.** `cmdk` library, `Cmd/Ctrl+K` to open. Actions:
+   regenerate insights, jump to Ask, jump to Dashboard / Accounts /
+   Categories / Transactions / Reports, filter feed by card type,
+   dismiss all of a given card type. No fuzzy search on transactions in
+   this PR — that's a follow-up.
+
+### Card type: Category Drift
+
+**Why.** YNAB shows you what you spent this month. It does not tell you
+that Groceries has crept up 33% over the year. Drift is the most useful
+forward-looking diagnostic in personal finance that YNAB conspicuously
+doesn't surface.
+
+**Detection.** For each on-budget expense category:
+
+- Pull the last 12 months of net spending per month (already aggregated
+  via `monthly_trend`).
+- Trailing quarter: months `[-3, -1]` inclusive (the three months
+  before the current incomplete one — using the in-progress month
+  would skew low).
+- Prior quarters: months `[-12, -4]` averaged, then compared.
+- Drift % = (trailing_q_avg − prior_avg) / prior_avg.
+- Drift $ = (trailing_q_avg − prior_avg).
+- Flag when `abs(drift%) ≥ 0.15 AND abs(drift$) ≥ $50`.
+- Both upward (overspending) AND downward drift surface. Downward
+  reads as "$X/mo freed up — reallocate?".
+
+**LLM enhancement** (optional, degradation-safe like the rest): given
+the structured payload (category name, drift %, dollar impact,
+sparkline points), write one sentence framing the trend. Never invent
+numbers; only reuse what's in the payload.
+
+**Card body.** Drift % in hero position (`+33%` in destructive red,
+`−12%` in emerald green). Dollar impact below as muted secondary copy.
+A 12-point inline SVG sparkline of the monthly nets. Category name as
+title.
+
+**Detail view.** Full Tremor LineChart of the 12 monthly nets,
+transactions list filtered to this category (sortable by amount and
+date), and a "Discuss in Ask" CTA pre-loaded with "What changed about
+my {category} spending over the last year?".
+
+**Dedup key:** `drift:{category_id}:{year_month}`. One refreshed
+insight per category per month.
+
+**Cadence:** monthly (1st of the month, 03:50 UTC).
+
+### Card type: Year in Money
+
+**Why.** The "Spotify Wrapped" energy — but restrained. A scheduled
+retrospective is one of the few moments where the user actively wants
+the app to make a story out of their data. Annual + quarterly variants
+both ship.
+
+**Trigger cadences.**
+
+- **Annual:** Jan 1, looking back at the prior calendar year. Requires
+  ≥ 12 months of synced data.
+- **Quarterly:** Apr 1 / Jul 1 / Oct 1, looking back at the prior
+  calendar quarter. Requires ≥ 3 months of synced data.
+
+**Generation.** Mostly LLM-driven, deterministic underneath.
+Deterministic stats assembled by Python:
+
+- `total_income`, `total_spending`, `net_income`
+- `top_categories` (top 3 by net spend, with dollar amounts)
+- `top_payees` (top 5 by frequency × amount)
+- `savings_rate_trend` (monthly savings rates as a series)
+- `biggest_single_transaction` (largest absolute amount, with payee
+  and date)
+- `largest_category_swing` (category with biggest delta vs prior
+  period — Category Drift's logic at year/quarter granularity)
+
+These all feed the LLM prompt that writes the narrative ("a quiet
+year for housing, a noisy one for travel" — that voice). Prompt
+explicitly says: human voice, restrained, no exclamation points, no
+over-praise of habits, no inflated significance.
+
+**Card body.** Compact:
+
+- Title: "Your 2025 in money" or "Q3 2025".
+- 3–4 stats: total income, total spending, savings rate, biggest
+  single moment (e.g. "Largest single: $4,287 to Pariveda Solutions").
+- "Open" affordance leading to the detail view.
+
+**Detail view: full-page route, not modal.** Decision: a modal would
+make the scroll math fragile and would hide the URL when the user
+inevitably wants to share it. Multi-panel layout, fade-and-slide on
+scroll (`MOTION.e.out`):
+
+1. **Hero** — title + total income / total spending side-by-side, big
+   tabular numerals, savings rate as a small chip.
+2. **Top 3 categories** — horizontal bars, color-coded.
+3. **Top payees** — list with amounts, no chart.
+4. **Savings rate trend** — Tremor sparkline.
+5. **Biggest single moment** — single transaction in a hero card.
+6. **The narrative** — LLM-written paragraph(s), serif typeface
+   contrast to the surrounding sans, generous line-height.
+
+This view is the screenshot-worthy artifact. Spend judgment here.
+
+**Dedup key:** `year_in_money:{budget_id}:{period_label}` where
+`period_label` is `2025` (annual) or `2025-Q3` (quarterly). One
+refreshed insight per budget per period.
+
+### Copy voice
+
+Two principles, applied everywhere:
+
+1. **Minimal.** Cut copy that isn't needed. An empty state needs a
+   sentence, not a paragraph. A tooltip on an obvious icon usually
+   shouldn't exist. Disclaimers and labels often add noise without
+   adding information.
+2. **Natural.** What stays gets rewritten to sound like a person wrote
+   it. No marketing voice, no over-explanation, no fake friendliness,
+   no exclamation points, no emoji.
+
+A few before/after pairs to make the bar concrete:
+
+| Before | After |
+| --- | --- |
+| "Welcome to your YNAB Insights dashboard! Let's get started." | "No insights yet. Generate to see what's worth your attention." |
+| "An error occurred while loading the data. Please try again later." | "Couldn't reach YNAB. Retry?" |
+| "AI-powered subscription detection identified the following recurring charges." | "11 recurring charges. $147 a month." |
+
+LLM-generated copy (Year in Money narrative, optional card summaries)
+gets the same guidance baked into the system prompt rather than
+post-processed.
+
+### Out of scope (future PRs)
+
+- Per-user theme customization.
+- Animated cover image for Year in Money.
+- Social-card meta tags for sharing.
+- Mobile-specific motion tuning.

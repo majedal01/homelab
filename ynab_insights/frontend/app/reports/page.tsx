@@ -67,8 +67,7 @@ export default async function ReportsPage({
             Income vs Expense
           </h1>
           <p className="text-sm text-muted-foreground">
-            Same layout as YNAB&apos;s Income vs Expense CSV so you can
-            compare row-for-row. {dateFrom} → {dateTo}.
+            Compare row-for-row against YNAB. {dateFrom} → {dateTo}.
           </p>
         </div>
         <DateRangePicker />
@@ -210,8 +209,7 @@ export default async function ReportsPage({
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Reconcile</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Diagnostic numbers — included so you can spot where money is
-            hiding when the headline totals don&apos;t tie out against YNAB.
+            Diagnostics for when the totals don&apos;t match YNAB.
           </p>
         </CardHeader>
         <CardContent>
@@ -250,12 +248,9 @@ export default async function ReportsPage({
             </tbody>
           </table>
           <p className="mt-3 text-[11px] text-muted-foreground">
-            Total Expenses = Gross outflow − Uncategorized outflow − (refunds
-            in expense categories). If Gross outflow ≈ YNAB Total Expenses
-            but Total Expenses above does not, the gap is in the
-            uncategorized buckets — usually transactions whose category was
-            deleted in YNAB. If Gross outflow also doesn&apos;t match, the
-            gap is in the sync itself or in an excluded account.
+            Gross outflow off vs YNAB → sync miss or excluded account. Gross
+            outflow OK but Total Expenses off → look in the uncategorized
+            buckets (usually deleted-in-YNAB categories).
           </p>
         </CardContent>
       </Card>

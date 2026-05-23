@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MessageSquare } from "lucide-react";
 
+import { Aurora } from "@/components/brand/aurora";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiFetch } from "@/lib/api";
@@ -10,6 +11,8 @@ import { SubscriptionAuditDetail } from "@/components/insights/details/subscript
 import { SpendingAnomalyDetail } from "@/components/insights/details/spending-anomaly-detail";
 import { CashflowForecastDetail } from "@/components/insights/details/cashflow-forecast-detail";
 import { GoalTrajectoryDetail } from "@/components/insights/details/goal-trajectory-detail";
+import { CategoryDriftDetail } from "@/components/insights/details/category-drift-detail";
+import { YearInMoneyDetail } from "@/components/insights/details/year-in-money-detail";
 import { DismissForm } from "@/app/insights/[id]/dismiss-form";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +22,8 @@ const CARD_TYPE_LABEL: Record<InsightResponse["card_type"], string> = {
   spending_anomaly: "Spending anomaly",
   cashflow_forecast: "Cashflow forecast",
   goal_trajectory: "Goal trajectory",
+  category_drift: "Category drift",
+  year_in_money: "Year in money",
 };
 
 function renderBody(insight: InsightResponse): React.ReactElement {
@@ -32,6 +37,10 @@ function renderBody(insight: InsightResponse): React.ReactElement {
       return <CashflowForecastDetail data={data} />;
     case "goal_trajectory":
       return <GoalTrajectoryDetail data={data} />;
+    case "category_drift":
+      return <CategoryDriftDetail data={data} />;
+    case "year_in_money":
+      return <YearInMoneyDetail data={data} />;
   }
 }
 
@@ -46,6 +55,10 @@ function buildAskPrompt(insight: InsightResponse): string {
       return "Based on my last 90 days, where could I trim spending to improve my 90-day balance?";
     case "goal_trajectory":
       return `Am I on track to hit my ${data.category_name} goal? What would help me move faster?`;
+    case "category_drift":
+      return `What changed about my ${data.category_name} spending over the last year?`;
+    case "year_in_money":
+      return `Walk me through the standout moments from ${data.period_label}.`;
   }
 }
 
@@ -69,7 +82,9 @@ export default async function InsightDetailPage({
   const askPrompt = buildAskPrompt(insight);
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
+    <>
+      <Aurora variant="quiet" />
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
           <Button variant="ghost" size="sm" asChild className="-ml-2">
@@ -108,6 +123,7 @@ export default async function InsightDetailPage({
           ? ` · refreshed ${insight.refreshed_at}`
           : ""}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

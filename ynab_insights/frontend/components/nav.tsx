@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BudgetSwitcher } from "@/components/budget-switcher";
+import { LogoMark } from "@/components/brand/logo";
 import type { BudgetResponse } from "@/lib/api-types";
 
 const NAV_ITEMS: { href: string; label: string }[] = [
@@ -65,7 +66,11 @@ export function Nav({
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
-        <Link href="/insights" className="mr-6 font-semibold tracking-tight">
+        <Link
+          href="/insights"
+          className="mr-6 inline-flex items-center gap-2 font-semibold tracking-tight"
+        >
+          <LogoMark size={20} className="text-foreground" />
           YNAB Insights
         </Link>
         <nav className="hidden md:flex items-center gap-1 flex-1">

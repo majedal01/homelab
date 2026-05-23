@@ -47,7 +47,7 @@ Full design in [`docs/deployment.md`](docs/deployment.md).
 
 **Status:** In progress.
 
-An AI financial coach that lives alongside your YNAB. Pulls data from the YNAB budgeting API into a local Postgres store, then generates a feed of forward-looking insight cards — subscription audits, spending anomalies, cashflow forecasts, goal trajectories — that YNAB itself doesn't surface. A Claude-powered agent (`Ask`) answers follow-up questions with a streaming tool-use loop. FastAPI backend, Next.js (App Router) frontend, Postgres store.
+An AI financial coach that lives alongside YNAB. Pulls data from YNAB into a local Postgres, surfaces a feed of forward-looking cards (subscriptions, spending anomalies, cashflow forecasts, goal trajectories, category drift, year/quarter retrospectives), and answers natural-language follow-ups with a Claude-backed agent (`Ask`). FastAPI + Next.js + Postgres.
 
 - Source: [`ynab_insights/`](ynab_insights/) (backend + frontend live together)
 - Design notes: [`ynab_insights/DESIGN.md`](ynab_insights/DESIGN.md)

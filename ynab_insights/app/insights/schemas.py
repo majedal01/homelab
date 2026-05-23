@@ -19,6 +19,8 @@ CardType = Literal[
     "spending_anomaly",
     "cashflow_forecast",
     "goal_trajectory",
+    "category_drift",
+    "year_in_money",
 ]
 
 Cadence = Literal["weekly", "monthly", "quarterly", "yearly"]
@@ -90,6 +92,63 @@ class CashflowForecastData(BaseModel):
     top_spending_categories: list[CategoryRate]
 
 
+class CategoryDriftData(BaseModel):
+    card_type: Literal["category_drift"] = "category_drift"
+    category_id: str
+    category_name: str
+    trailing_quarter_avg_cents: int  # positive net spend per month
+    prior_three_quarters_avg_cents: int
+    drift_pct: float  # signed; positive = drifted up
+    drift_cents_per_month: int  # signed
+    direction: Literal["up", "down"]
+    monthly_nets_cents: list[int]  # 12 months oldest-first, positive = spend
+
+
+class YearInMoneyStat(BaseModel):
+    label: str
+    value_cents: int | None = None
+    note: str | None = None
+
+
+class YearInMoneyTopCategory(BaseModel):
+    category_id: str | None
+    category_name: str
+    net_spend_cents: int  # positive
+
+
+class YearInMoneyTopPayee(BaseModel):
+    payee_id: str | None
+    payee_name: str
+    transaction_count: int
+    amount_cents: int  # positive
+
+
+class YearInMoneyBiggestSingle(BaseModel):
+    transaction_id: str
+    date: date
+    amount_cents: int  # negative for outflow
+    payee_name: str | None
+    category_name: str | None
+
+
+class YearInMoneyData(BaseModel):
+    card_type: Literal["year_in_money"] = "year_in_money"
+    period_label: str  # "2025" or "2025-Q3"
+    period_kind: Literal["annual", "quarterly"]
+    period_start: date
+    period_end: date
+    total_income_cents: int  # positive
+    total_spending_cents: int  # positive
+    net_income_cents: int  # signed
+    savings_rate: float | None  # 0..1 ratio, null when income <= 0
+    top_categories: list[YearInMoneyTopCategory]
+    top_payees: list[YearInMoneyTopPayee]
+    biggest_single: YearInMoneyBiggestSingle | None
+    savings_rate_trend: list[float | None]  # per-month, oldest first
+    largest_category_swing: YearInMoneyTopCategory | None
+    narrative: str  # LLM-written paragraph; falls back to deterministic copy
+
+
 class GoalTrajectoryData(BaseModel):
     card_type: Literal["goal_trajectory"] = "goal_trajectory"
     category_id: str
@@ -107,7 +166,12 @@ class GoalTrajectoryData(BaseModel):
 
 
 InsightStructuredData = Annotated[
-    SubscriptionAuditData | SpendingAnomalyData | CashflowForecastData | GoalTrajectoryData,
+    SubscriptionAuditData
+    | SpendingAnomalyData
+    | CashflowForecastData
+    | GoalTrajectoryData
+    | CategoryDriftData
+    | YearInMoneyData,
     Field(discriminator="card_type"),
 ]
 

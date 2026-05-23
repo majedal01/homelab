@@ -18,15 +18,13 @@ export function InsightFeed({
 }) {
   if (insights.length === 0 && offset === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-lg border bg-card p-12 text-center">
+      <div className="flex flex-col items-center gap-3 rounded-lg border bg-card/60 backdrop-blur p-12 text-center">
         <div className="rounded-full bg-muted p-3 text-muted-foreground">
           <Inbox className="h-5 w-5" />
         </div>
-        <h3 className="text-sm font-medium">No insights yet</h3>
+        <h3 className="text-sm font-medium">Nothing yet.</h3>
         <p className="max-w-sm text-xs text-muted-foreground">
-          Once your YNAB data has been synced, the generators will surface
-          subscription audits, spending anomalies, cashflow forecasts, and
-          goal progress here. You can also generate them on demand below.
+          Sync your YNAB data, then regenerate.
         </p>
       </div>
     );

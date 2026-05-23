@@ -6,10 +6,13 @@ import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
+import { CountUp } from "@/components/brand/count-up";
 import type { DeltaInfo } from "@/lib/metrics";
 
 export interface KpiCardProps {
   label: string;
+  /** Pre-formatted display string. Required so the SSR pass renders the
+   * final value with no flicker before the count-up takes over. */
   value: string;
   delta?: DeltaInfo | null;
   /**
@@ -21,6 +24,13 @@ export interface KpiCardProps {
   index?: number;
   /** Override the value's color (rarely needed). */
   valueClassName?: string;
+  /**
+   * Optional numeric counterpart that enables the count-up animation. When
+   * provided alongside `formatAnimated`, the card tweens 0 → numericValue
+   * once on first viewport entry. Otherwise the static `value` renders.
+   */
+  numericValue?: number;
+  formatAnimated?: (v: number) => string;
 }
 
 const directionStyles: Record<NonNullable<DeltaInfo["direction"]>, string> = {
@@ -48,6 +58,8 @@ export function KpiCard({
   deltaLabel = "vs last month",
   index = 0,
   valueClassName,
+  numericValue,
+  formatAnimated,
 }: KpiCardProps) {
   return (
     <motion.div
@@ -60,14 +72,25 @@ export function KpiCard({
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {label}
           </span>
-          <span
-            className={cn(
-              "font-mono text-3xl font-semibold tabular-nums",
-              valueClassName,
-            )}
-          >
-            {value}
-          </span>
+          {numericValue !== undefined && formatAnimated ? (
+            <CountUp
+              value={numericValue}
+              format={formatAnimated}
+              className={cn(
+                "font-mono text-3xl font-semibold tabular-nums",
+                valueClassName,
+              )}
+            />
+          ) : (
+            <span
+              className={cn(
+                "font-mono text-3xl font-semibold tabular-nums",
+                valueClassName,
+              )}
+            >
+              {value}
+            </span>
+          )}
           {delta ? (
             <div
               className={cn(
