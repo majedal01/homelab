@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Nav } from "@/components/nav";
+import { CommandPalette } from "@/components/command-palette";
 import { Toaster } from "@/components/ui/sonner";
 import { apiFetch, getSelectedBudgetId } from "@/lib/api";
 import type { BudgetResponse } from "@/lib/api-types";
@@ -44,6 +45,7 @@ export default async function RootLayout({
         >
           <Nav budgets={budgets} selectedBudgetId={selectedBudgetId} />
           <main className="container py-6">{children}</main>
+          <CommandPalette />
           <Toaster />
         </ThemeProvider>
       </body>

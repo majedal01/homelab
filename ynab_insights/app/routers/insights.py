@@ -81,6 +81,7 @@ async def list_insights(
     session: SessionDep,
     settings: SettingsDep,
     budget_id: Annotated[str | None, Query()] = None,
+    card_type: Annotated[str | None, Query()] = None,
     include_dismissed: Annotated[bool, Query()] = False,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -91,6 +92,8 @@ async def list_insights(
     stmt = select(Insight).where(Insight.budget_id == resolved)
     if not include_dismissed:
         stmt = stmt.where(Insight.dismissed_at.is_(None))
+    if card_type is not None:
+        stmt = stmt.where(Insight.card_type == card_type)
     stmt = stmt.order_by(Insight.refreshed_at.desc(), Insight.id.desc()).limit(limit).offset(offset)
     rows = (await session.execute(stmt)).scalars().all()
     return [_to_response(r) for r in rows]

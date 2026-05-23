@@ -11,6 +11,7 @@ const PAGE_SIZE = 20;
 interface InsightsSearchParams {
   offset?: string;
   include_dismissed?: string;
+  card_type?: string;
 }
 
 export default async function InsightsPage({
@@ -29,6 +30,7 @@ export default async function InsightsPage({
   const insights = await apiFetch<InsightResponse[]>(
     `/api/insights${qs({
       budget_id: selected ?? undefined,
+      card_type: params.card_type ?? undefined,
       include_dismissed: includeDismissed,
       limit: PAGE_SIZE + 1,
       offset,
