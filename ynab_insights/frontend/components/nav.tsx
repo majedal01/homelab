@@ -19,10 +19,7 @@ import { BudgetSwitcher } from "@/components/budget-switcher";
 import type { BudgetResponse } from "@/lib/api-types";
 
 const NAV_ITEMS: { href: string; label: string }[] = [
-  { href: "/", label: "Dashboard" },
-  { href: "/accounts", label: "Accounts" },
-  { href: "/transactions", label: "Transactions" },
-  { href: "/categories", label: "Categories" },
+  { href: "/insights", label: "Insights" },
   { href: "/ask", label: "Ask" },
 ];
 
@@ -63,7 +60,7 @@ export function Nav({
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
-        <Link href="/" className="mr-6 font-semibold tracking-tight">
+        <Link href="/insights" className="mr-6 font-semibold tracking-tight">
           YNAB Insights
         </Link>
         <nav className="hidden md:flex items-center gap-1 flex-1">

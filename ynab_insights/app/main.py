@@ -6,6 +6,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 
+from app import insights as _insights  # noqa: F401  side-effect: registers generators
 from app.config import get_settings
 from app.logging_config import setup_logging
 from app.routers import (
@@ -14,6 +15,7 @@ from app.routers import (
     budgets,
     categories,
     health,
+    insights,
     metrics,
     payees,
     suggestions,
@@ -61,4 +63,5 @@ app.include_router(payees.router)
 app.include_router(transactions.router)
 app.include_router(ask.router)
 app.include_router(suggestions.router)
+app.include_router(insights.router)
 app.include_router(metrics.router)

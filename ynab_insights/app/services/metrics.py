@@ -15,6 +15,8 @@ class Counters:
     ask_calls: int = 0
     ask_failures: int = 0
     tool_errors: int = 0
+    insight_runs_ok: int = 0
+    insight_runs_failed: int = 0
 
 
 # Single module-level instance. Modules that need to increment import this.
@@ -54,6 +56,16 @@ def render_prometheus(
         "ynab_insights_tool_errors_total",
         "Total agent tool executions that errored",
         counters.tool_errors,
+    )
+    counter(
+        "ynab_insights_insight_runs_ok_total",
+        "Total insight generator runs that completed successfully",
+        counters.insight_runs_ok,
+    )
+    counter(
+        "ynab_insights_insight_runs_failed_total",
+        "Total insight generator runs that errored",
+        counters.insight_runs_failed,
     )
 
     for table, count in gauges.items():

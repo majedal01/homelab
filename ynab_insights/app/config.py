@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-haiku-4-5-20251001"
     ask_max_turns: int = 10
 
+    # Insights Feed (v2.4). When False, the scheduler skips all insight
+    # generator jobs (manual `POST /api/insights/generate` still works).
+    insights_generation_enabled: bool = True
+
     @model_validator(mode="after")
     def _assemble_database_url(self) -> "Settings":
         if self.database_url:

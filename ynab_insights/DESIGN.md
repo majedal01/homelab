@@ -392,3 +392,306 @@ can't double-submit.
   privacy-by-default story.
 - Voice or other modalities.
 - Inline charts in answers (text only for now).
+
+## v2.4 Insights Feed decisions
+
+### Framing shift
+
+Through v2.3 this app was framed as "an AI-augmented dashboard for YNAB."
+v2.4 changes the framing to "the AI financial coach that lives alongside
+your YNAB." YNAB plus its toolkit already covers the present and past
+view of money. This app focuses on what they don't: forward-looking
+analysis, pattern detection, and narrative coaching delivered as a feed
+of digestible cards.
+
+That framing has three concrete consequences:
+
+1. The homepage is no longer a YNAB-shaped dashboard. It becomes the
+   Insights Feed.
+2. The top-level routes that duplicated YNAB's own UI (Dashboard,
+   Accounts, Transactions, Categories) are removed entirely, along with
+   their components. The underlying SQLAlchemy models stay — they power
+   the generators and the per-card detail views — but there is no
+   user-facing data browser.
+3. The nav collapses to two surfaces: Insights (primary) and Ask
+   (existing agent from v2.3).
+
+### Generator pattern
+
+Each card type is a Python class subclassing `InsightGenerator` and
+auto-registered when its module is imported. The base class declares:
+
+```python
+class InsightGenerator(ABC):
+    card_type: ClassVar[str]            # discriminator, e.g. "subscription_audit"
+    cadence: ClassVar[Cadence]          # how often the scheduler runs it
+    @abstractmethod
+    async def run(self, session, settings, budget_id) -> list[GeneratedInsight]: ...
+```
+
+`GeneratedInsight` is a small dataclass with `dedup_key`, `title`,
+`summary`, and `structured_data` (the typed payload that drives the
+card UI). The registry is populated by a `@register_generator`
+decorator. The orchestrator owns the database write path:
+
+- Open an `InsightRun` row with `status='running'`, capture
+  `started_at`, run the generator.
+- For each `GeneratedInsight`, upsert by `(budget_id, dedup_key)`:
+  insert if new; if a non-dismissed row with the same key already
+  exists, update its content in-place (keeps the user's interaction
+  state but lets new evidence refresh the card).
+- Close the run with `status='ok' | 'error'`, `duration_ms`, error
+  message, and the count of insights produced.
+
+Generators never touch the request path. They run via APScheduler on
+their declared cadence, or via the on-demand `POST /api/insights/generate`
+endpoint, which dispatches each registered generator in a worker task
+and returns immediately with the new `InsightRun` IDs.
+
+### LLM use: hybrid, degradation-safe
+
+Each generator does deterministic Python for detection and math. The
+LLM is optional and runs *after* deterministic detection succeeds:
+given the structured payload, it can rewrite `title` and `summary` into
+warmer, human-tone copy. The LLM is not in the critical path:
+
+- If `ANTHROPIC_API_KEY` is unset, generators run with their default
+  templated copy. The card still renders.
+- If the LLM call times out (5s default) or raises, generators log
+  and fall back to the deterministic copy. The run still records
+  `status='ok'`.
+- LLM payloads send only the minimum needed fields: the structured
+  payload itself, never raw memos or unrelated transaction context.
+
+### Card types in this PR
+
+Four generators ship together. Each has deterministic detection,
+optional LLM enhancement, unit tests, a frontend card component, and a
+detail view.
+
+**Subscription Audit** — `card_type: "subscription_audit"`, cadence
+weekly. Cluster recurring charges over the last 90 days by
+`(payee_id, amount_cents)`. A cluster is "subscription-like" when:
+
+- ≥3 occurrences within 90 days, AND
+- the intervals between consecutive occurrences land within a tolerance
+  of one of the canonical cadences (`monthly`: 28–32 days,
+  `quarterly`: 85–95 days, `weekly`: 6–8 days, `yearly`: 360–370 days).
+
+For each detected cluster, monthly cost = `amount_cents` converted to
+the cluster's cadence (e.g. quarterly cost / 3). Card surfaces monthly
+cost prominently, annual cost secondary, plus the list of detected
+charges in the detail view. Dedup key:
+`subscription:{payee_id}:{amount_cents}:{cadence}`.
+
+**Spending Anomaly** — `card_type: "spending_anomaly"`, cadence weekly.
+For each spending category, compute outflow per week over the trailing
+13 weeks. The most recent week is the "current" week; the prior 12 are
+the baseline. A category flags when:
+
+- `|z_score| >= 2.0` against the baseline, AND
+- the absolute deviation is at least `$25` so a category that normally
+  spends nothing doesn't surface on a single $5 charge.
+
+Card shows the category, the deviation (e.g. "+147% vs your 12-week
+average"), and the top transactions driving the spike in the detail
+view. Dedup key: `anomaly:{category_id}:{week_label}` where
+`week_label` is the ISO year-week of the current week, so a fresh
+anomaly each week dedupes cleanly.
+
+**Cashflow Forecast** — `card_type: "cashflow_forecast"`, cadence
+daily. Take the last 90 days of transactions, compute the mean daily
+net cashflow (income − spending, transfers excluded), and project that
+mean forward 90 days. Starting balance is the current sum of open
+on-budget accounts. Card shows projected balance at +30/+60/+90 days.
+The detail view holds the per-category breakdown and interactive
+sliders for what-if scenarios — sliders are frontend-only; the
+backend payload includes the top 5 spending categories with their
+monthly average so the slider math runs client-side. Dedup key:
+`forecast:{budget_id}:{iso_year_week}` so the card refreshes weekly
+even though the generator runs daily.
+
+**Goal Trajectory** — `card_type: "goal_trajectory"`, cadence daily.
+This generator depends on YNAB goal data, which v2.4 starts persisting
+on `Category`: `goal_type`, `goal_target_cents`, `goal_target_month`,
+`goal_percentage_complete`, `goal_overall_left_cents`,
+`goal_months_to_budget`. The sync pulls them through. For each
+category with `goal_target_cents` set and `goal_percentage_complete <
+100`:
+
+- If `goal_type='TBD'` (target by date), project on-track vs behind
+  using YNAB's `goal_months_to_budget` and `goal_overall_left`.
+- If `goal_type='TB'` (target balance, no deadline), project completion
+  date assuming the user keeps funding at the current monthly cadence
+  (`goal_overall_left / monthly_contribution`).
+
+Acceleration slider is frontend-only; backend exposes
+`remaining_cents`, `current_monthly_contribution_cents`, and
+`target_date` so the client can recompute. Dedup key:
+`goal:{category_id}:{iso_year_month}` — one refreshed insight per goal
+per month.
+
+### Why the YNAB goal fields land in this PR
+
+Without them the Goal Trajectory generator has no signal to project
+against — transactions alone don't reveal which categories are goals.
+Adding six nullable columns to `Category` plus extending the YNAB
+client pydantic model and sync upsert keeps the change small. The new
+fields default to `NULL` and don't affect any v2.1/v2.2/v2.3 behavior.
+
+### Data model: `Insight` and `InsightRun`
+
+```python
+class Insight(Base):
+    id: int                       # serial
+    budget_id: str (FK)
+    card_type: str                # discriminator
+    dedup_key: str                # unique with budget_id
+    title: str
+    summary: str                  # short human-facing copy
+    structured_data: JSONB        # typed payload, varies by card_type
+    generated_at: datetime
+    refreshed_at: datetime        # updated on re-upsert
+    dismissed_at: datetime | None # null = visible in feed
+    llm_enhanced: bool            # did the LLM rewrite this? observability
+
+class InsightRun(Base):
+    id: int                       # serial
+    card_type: str
+    started_at: datetime
+    finished_at: datetime | None
+    status: str                   # 'running' | 'ok' | 'error'
+    duration_ms: int | None
+    insights_created: int
+    insights_updated: int
+    error: str | None
+```
+
+`Insight.structured_data` is JSONB on Postgres and TEXT-with-JSON on
+SQLite. SQLAlchemy's `JSON` type maps to both. Indexes:
+
+- `(budget_id, dismissed_at, refreshed_at DESC)` for the default feed
+  query.
+- Unique `(budget_id, dedup_key)` — idempotency.
+- `(card_type, started_at DESC)` on `InsightRun` for the runs page.
+
+### Pydantic schema: discriminated union
+
+`structured_data` is typed end to end. Each card type has its own
+schema:
+
+```python
+class SubscriptionAuditData(BaseModel):
+    card_type: Literal["subscription_audit"]
+    payee_name: str
+    cadence: Literal["weekly", "monthly", "quarterly", "yearly"]
+    monthly_cost_cents: int
+    annual_cost_cents: int
+    occurrences: list[OccurrenceRef]  # transaction IDs + dates + amounts
+
+# ...one per card type...
+
+InsightStructuredData = Annotated[
+    SubscriptionAuditData | SpendingAnomalyData | CashflowForecastData
+        | GoalTrajectoryData,
+    Field(discriminator="card_type"),
+]
+```
+
+Discriminated union (over per-type validators) because it gives
+generated OpenAPI a `oneOf` with the discriminator hint, which
+openapi-typescript turns into a clean TS discriminated union the
+frontend can switch on without `as`-casts.
+
+### API surface
+
+- `GET /api/insights?budget_id=&include_dismissed=false&limit=20&offset=0`
+  — feed query. Newest first. Default excludes dismissed.
+- `GET /api/insights/{id}` — full payload including the transactions
+  referenced in `structured_data` (resolved server-side so the detail
+  view doesn't fan out into N+1 fetches).
+- `POST /api/insights/{id}/dismiss` — sets `dismissed_at`. Idempotent.
+- `POST /api/insights/generate?card_type=&budget_id=` — fire one or
+  all generators on demand. Returns the new `InsightRun` IDs.
+- `GET /api/insights/runs?limit=50` — last N runs across all card
+  types for observability / debug.
+
+### Scheduling
+
+APScheduler gains four jobs alongside the existing sync job:
+
+- `insights_subscription_audit` — weekly (Monday 03:10 UTC).
+- `insights_spending_anomaly` — weekly (Monday 03:20 UTC).
+- `insights_cashflow_forecast` — daily (03:30 UTC).
+- `insights_goal_trajectory` — daily (03:40 UTC).
+
+Cadence values are configurable via env vars (e.g.
+`INSIGHTS_FORECAST_INTERVAL_HOURS`); the times above are defaults that
+follow the existing 30-minute sync so generators always run against
+fresh YNAB data. Each job is `coalesce=True, max_instances=1` so a slow
+run doesn't pile up.
+
+### Navigation consolidation
+
+The pages removed in this PR:
+
+- `/` (the v2.2 Dashboard) — replaced by an HTTP 307 redirect to
+  `/insights`.
+- `/accounts`, `/accounts/[id]`
+- `/transactions`
+- `/categories`
+
+…along with their components (`dashboard/`, `accounts/`,
+`transactions/`, `categories/` under `frontend/components/`) and the
+shared utilities they pulled in: `lib/metrics.ts` (KPI math used only
+by the dashboard) and `components/date-range-picker.tsx`. The picker
+was originally going to stay for cashflow detail, but the v2.4 cashflow
+detail uses a fixed 90-day lookback chosen by the backend, so the
+picker has no consumer and is removed too. If a future detail view
+needs interactive date selection, the picker comes back in that PR.
+
+The nav becomes two items: **Insights** and **Ask**.
+
+### Deep-dive UX: dedicated route, not side sheet
+
+Clicking a card navigates to `/insights/[id]` — a full route, not a
+side sheet. Reasons:
+
+- Detail views can be dense (transaction tables, multi-card slider
+  layouts) and a sheet feels cramped.
+- A route URL is shareable and back/forward-navigable, which matches
+  how the rest of the app uses RSC for read-heavy pages.
+- The pre-loaded Ask context is a one-click handoff to `/ask`; the
+  detail page can host that context cleanly without competing with a
+  sheet's close affordance.
+
+Each card type contributes one detail-page component selected by
+`card_type`. The page also exposes a "Discuss in Ask" CTA that
+navigates to `/ask?prefill=<question>` with the question seeded from
+the insight's structured data (e.g. "Why has my Groceries spending
+spiked 147% this week?"). The Ask page reads `prefill` from the URL on
+mount and submits.
+
+### Pagination
+
+Server-side offset pagination on `GET /api/insights`. Default limit
+20, max 100. Feed page renders with cursor links (`?offset=20`,
+`?offset=40`). Offset is acceptable here because:
+
+- Total insight count is bounded (a handful per generator per cadence
+  cycle, dismissed and visible combined).
+- The feed isn't a high-velocity stream where insert-during-paging
+  would skew offsets meaningfully.
+
+If volume ever becomes a problem the route can switch to keyset on
+`(refreshed_at, id)` without a client-visible change.
+
+### Out of scope (future PRs)
+
+- Additional card types: Category Drift, Year-in-Money / Quarter-in-
+  Money, What-If Scenario (agent-driven, generated on demand from
+  Ask). Each is one-PR-per-card-type follow-up work.
+- Severity-based ranking or curation of the feed.
+- Per-card-type user preferences (snooze, mute, threshold tuning).
+- Email digest, sharing, cancellation deep-links from Subscription
+  Audit cards.

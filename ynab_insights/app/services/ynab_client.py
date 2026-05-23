@@ -48,6 +48,14 @@ class YNABCategory(BaseModel):
     category_group_id: str | None = None
     name: str
     hidden: bool = False
+    # YNAB goal fields. All optional; only present when the user configured a goal
+    # on the category. Stored in milliunits where applicable; converted on ingest.
+    goal_type: str | None = None
+    goal_target: int | None = None  # milliunits
+    goal_target_month: date | None = None
+    goal_percentage_complete: int | None = None
+    goal_overall_left: int | None = None  # milliunits
+    goal_months_to_budget: int | None = None
 
 
 class YNABPayee(BaseModel):

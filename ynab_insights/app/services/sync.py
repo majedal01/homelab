@@ -165,6 +165,14 @@ async def _upsert_account(session: AsyncSession, source: YNABAccount, budget_id:
 
 
 async def _upsert_category(session: AsyncSession, source: YNABCategory, budget_id: str) -> None:
+    goal_target_cents = (
+        milliunits_to_cents(source.goal_target) if source.goal_target is not None else None
+    )
+    goal_overall_left_cents = (
+        milliunits_to_cents(source.goal_overall_left)
+        if source.goal_overall_left is not None
+        else None
+    )
     existing = await session.get(Category, source.id)
     if existing is None:
         session.add(
@@ -174,6 +182,12 @@ async def _upsert_category(session: AsyncSession, source: YNABCategory, budget_i
                 category_group_id=source.category_group_id,
                 name=source.name,
                 hidden=source.hidden,
+                goal_type=source.goal_type,
+                goal_target_cents=goal_target_cents,
+                goal_target_month=source.goal_target_month,
+                goal_percentage_complete=source.goal_percentage_complete,
+                goal_overall_left_cents=goal_overall_left_cents,
+                goal_months_to_budget=source.goal_months_to_budget,
             )
         )
     else:
@@ -181,6 +195,12 @@ async def _upsert_category(session: AsyncSession, source: YNABCategory, budget_i
         existing.category_group_id = source.category_group_id
         existing.name = source.name
         existing.hidden = source.hidden
+        existing.goal_type = source.goal_type
+        existing.goal_target_cents = goal_target_cents
+        existing.goal_target_month = source.goal_target_month
+        existing.goal_percentage_complete = source.goal_percentage_complete
+        existing.goal_overall_left_cents = goal_overall_left_cents
+        existing.goal_months_to_budget = source.goal_months_to_budget
 
 
 async def _upsert_payee(session: AsyncSession, source: YNABPayee, budget_id: str) -> None:

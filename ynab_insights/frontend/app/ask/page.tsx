@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { MessageSquare, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -51,11 +52,36 @@ function historyFor(turns: Turn[]): { role: "user" | "assistant"; content: strin
 }
 
 export default function AskPage() {
+  // `useSearchParams` opts the page out of static rendering; Next 15 requires
+  // any caller to sit inside a Suspense boundary. Wrap the inner client tree
+  // so the static prerender of `/ask` succeeds while the param-aware logic
+  // streams in on hydration.
+  return (
+    <React.Suspense fallback={null}>
+      <AskPageInner />
+    </React.Suspense>
+  );
+}
+
+function AskPageInner() {
+  const searchParams = useSearchParams();
   const [turns, setTurns] = React.useState<Turn[]>(() => loadTurns());
   const [input, setInput] = React.useState("");
   const [suggestions, setSuggestions] = React.useState<string[] | null>(null);
   const abortRef = React.useRef<AbortController | null>(null);
   const scrollAnchorRef = React.useRef<HTMLDivElement | null>(null);
+
+  // `?prefill=` carries a question handed off from an insight detail's
+  // "Discuss in Ask" CTA. Only honor it when we're on the empty state so we
+  // don't trample an in-flight or completed conversation.
+  React.useEffect(() => {
+    const prefill = searchParams.get("prefill");
+    if (prefill && turns.length === 0 && !input) {
+      setInput(prefill);
+    }
+    // Only re-run when the prefill param actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   React.useEffect(() => {
     saveTurns(turns);
