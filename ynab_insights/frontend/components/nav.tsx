@@ -21,6 +21,10 @@ import type { BudgetResponse } from "@/lib/api-types";
 const NAV_ITEMS: { href: string; label: string }[] = [
   { href: "/insights", label: "Insights" },
   { href: "/ask", label: "Ask" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/accounts", label: "Accounts" },
+  { href: "/categories", label: "Categories" },
+  { href: "/transactions", label: "Transactions" },
 ];
 
 function NavLink({

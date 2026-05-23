@@ -18,6 +18,7 @@ from app.routers import (
     insights,
     metrics,
     payees,
+    reports,
     suggestions,
     sync,
     transactions,
@@ -64,4 +65,5 @@ app.include_router(transactions.router)
 app.include_router(ask.router)
 app.include_router(suggestions.router)
 app.include_router(insights.router)
+app.include_router(reports.router)
 app.include_router(metrics.router)

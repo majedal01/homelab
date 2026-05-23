@@ -217,3 +217,14 @@ export interface InsightRunResponse {
 export interface GenerateResponse {
   run_ids: number[];
 }
+
+export interface MonthlyTrendPointResponse {
+  year: number;
+  month: number; // 1-indexed (Jan = 1)
+  spending_cents: number;
+  income_cents: number;
+}
+
+export interface MonthlyTrendResponse {
+  points: MonthlyTrendPointResponse[];
+}

@@ -251,6 +251,68 @@ async def monthly_outflows(
     return results
 
 
+@dataclass(frozen=True)
+class MonthlyTrendRow:
+    year: int
+    month: int
+    spending_cents: int  # positive: total outflow for the month
+    income_cents: int  # positive: total inflow for the month
+
+
+async def monthly_trend(
+    session: AsyncSession,
+    budget_id: str,
+    months: int,
+) -> list[MonthlyTrendRow]:
+    """Spending + income aggregated per calendar month, oldest first.
+
+    Scoped to on-budget accounts and excludes transfers, matching the
+    dashboard's KPI definitions. Issues one SQL roundtrip per month — same
+    pattern as `monthly_outflows` — so it works identically on Postgres
+    (prod) and SQLite (tests) without needing dialect-specific date-part
+    functions. Response size is bounded by `months`, fixing the prior
+    client-side rollup that hit the `/transactions?limit=500` cap.
+    """
+    from calendar import monthrange
+
+    if months <= 0:
+        return []
+
+    results: list[MonthlyTrendRow] = []
+    for ms in _month_starts_back(date.today(), months):
+        me = date(ms.year, ms.month, monthrange(ms.year, ms.month)[1])
+        base_filter = (
+            Transaction.budget_id == budget_id,
+            Transaction.date >= ms,
+            Transaction.date <= me,
+            Account.on_budget.is_(True),
+            Account.closed.is_(False),
+        )
+        spending_stmt = _exclude_transfers(
+            select(func.coalesce(func.sum(-Transaction.amount_cents), 0))
+            .select_from(Transaction)
+            .join(Account, Account.id == Transaction.account_id)
+            .where(*base_filter, Transaction.amount_cents < 0)
+        )
+        income_stmt = _exclude_transfers(
+            select(func.coalesce(func.sum(Transaction.amount_cents), 0))
+            .select_from(Transaction)
+            .join(Account, Account.id == Transaction.account_id)
+            .where(*base_filter, Transaction.amount_cents > 0)
+        )
+        spending = (await session.execute(spending_stmt)).scalar_one()
+        income = (await session.execute(income_stmt)).scalar_one()
+        results.append(
+            MonthlyTrendRow(
+                year=ms.year,
+                month=ms.month,
+                spending_cents=int(spending),
+                income_cents=int(income),
+            )
+        )
+    return results
+
+
 async def list_categories_for_budget(
     session: AsyncSession, budget_id: str | None
 ) -> Sequence[Category]:
