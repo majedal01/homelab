@@ -94,24 +94,16 @@ class GoalTrajectoryGenerator(InsightGenerator):
             target_dollars = target / 100
             remaining_dollars = remaining / 100
             if cat.goal_target_month is not None and on_track is False:
-                pace_phrase = (
-                    f"behind your {cat.goal_target_month.strftime('%b %Y')} target"
-                )
+                pace_phrase = f"behind your {cat.goal_target_month.strftime('%b %Y')} target"
             elif cat.goal_target_month is not None and on_track is True:
-                pace_phrase = (
-                    f"on pace for your {cat.goal_target_month.strftime('%b %Y')} target"
-                )
+                pace_phrase = f"on pace for your {cat.goal_target_month.strftime('%b %Y')} target"
             elif projected_completion is not None:
-                pace_phrase = (
-                    f"on pace to finish around "
-                    f"{projected_completion.strftime('%b %Y')}"
-                )
+                pace_phrase = f"on pace to finish around {projected_completion.strftime('%b %Y')}"
             else:
                 pace_phrase = "no current pace recorded"
 
             fallback_title = (
-                f"{cat.name}: ${remaining_dollars:,.0f} to go of "
-                f"${target_dollars:,.0f}"
+                f"{cat.name}: ${remaining_dollars:,.0f} to go of ${target_dollars:,.0f}"
             )
             fallback_summary = (
                 f"You're {percent}% of the way to {cat.name} "

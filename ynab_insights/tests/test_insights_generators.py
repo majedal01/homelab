@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.insights import all_generators, execute_generator
-from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
+from app.insights.base import GeneratedInsight, InsightGenerator
 from app.insights.cashflow_forecast import CashflowForecastGenerator
 from app.insights.goal_trajectory import GoalTrajectoryGenerator
 from app.insights.spending_anomaly import SpendingAnomalyGenerator
@@ -93,9 +93,7 @@ async def test_subscription_audit_detects_monthly_cluster(
         )
     await db_session.commit()
 
-    outputs = await SubscriptionAuditGenerator().run(
-        db_session, get_settings(), "b-1"
-    )
+    outputs = await SubscriptionAuditGenerator().run(db_session, get_settings(), "b-1")
     assert len(outputs) == 1
     payload = outputs[0].structured_data
     assert payload["payee_name"] == "Netflix"
@@ -141,9 +139,7 @@ async def test_subscription_audit_ignores_irregular_intervals(
         )
     await db_session.commit()
 
-    outputs = await SubscriptionAuditGenerator().run(
-        db_session, get_settings(), "b-1"
-    )
+    outputs = await SubscriptionAuditGenerator().run(db_session, get_settings(), "b-1")
     assert outputs == []
 
 
@@ -199,9 +195,7 @@ async def test_subscription_audit_excludes_transfers(
         )
     await db_session.commit()
 
-    outputs = await SubscriptionAuditGenerator().run(
-        db_session, get_settings(), "b-1"
-    )
+    outputs = await SubscriptionAuditGenerator().run(db_session, get_settings(), "b-1")
     assert outputs == []
 
 
@@ -230,7 +224,20 @@ async def test_spending_anomaly_flags_z_above_threshold(
     )
     today = _today()
     # 12 baseline weeks with some variance, current week at $400 — clear spike.
-    baseline_cents = [-5000, -5500, -4500, -6000, -4000, -5000, -5500, -4500, -5000, -6000, -4000, -5500]
+    baseline_cents = [
+        -5000,
+        -5500,
+        -4500,
+        -6000,
+        -4000,
+        -5000,
+        -5500,
+        -4500,
+        -5000,
+        -6000,
+        -4000,
+        -5500,
+    ]
     txn_id = 0
     for week_back, amount in zip(range(12, 0, -1), baseline_cents, strict=True):
         center = today - timedelta(days=7 * week_back)
@@ -267,9 +274,7 @@ async def test_spending_anomaly_flags_z_above_threshold(
         )
     await db_session.commit()
 
-    outputs = await SpendingAnomalyGenerator().run(
-        db_session, get_settings(), "b-1"
-    )
+    outputs = await SpendingAnomalyGenerator().run(db_session, get_settings(), "b-1")
     assert len(outputs) == 1
     payload = outputs[0].structured_data
     assert payload["category_id"] == "c-grocery"
@@ -320,9 +325,7 @@ async def test_spending_anomaly_ignores_small_absolute_deviation(
     )
     await db_session.commit()
 
-    outputs = await SpendingAnomalyGenerator().run(
-        db_session, get_settings(), "b-1"
-    )
+    outputs = await SpendingAnomalyGenerator().run(db_session, get_settings(), "b-1")
     assert outputs == []
 
 
@@ -358,9 +361,7 @@ async def test_cashflow_forecast_uses_history_to_project(
     )
     await db_session.commit()
 
-    outputs = await CashflowForecastGenerator().run(
-        db_session, get_settings(), "b-1"
-    )
+    outputs = await CashflowForecastGenerator().run(db_session, get_settings(), "b-1")
     assert len(outputs) == 1
     payload = outputs[0].structured_data
     assert payload["starting_balance_cents"] == 100_000
@@ -384,9 +385,7 @@ async def test_cashflow_forecast_empty_when_no_history(
         )
     )
     await db_session.commit()
-    outputs = await CashflowForecastGenerator().run(
-        db_session, get_settings(), "b-1"
-    )
+    outputs = await CashflowForecastGenerator().run(db_session, get_settings(), "b-1")
     assert outputs == []
 
 
@@ -443,9 +442,7 @@ async def test_goal_trajectory_emits_per_active_goal(
     )
     await db_session.commit()
 
-    outputs = await GoalTrajectoryGenerator().run(
-        db_session, get_settings(), "b-1"
-    )
+    outputs = await GoalTrajectoryGenerator().run(db_session, get_settings(), "b-1")
     category_ids = {o.structured_data["category_id"] for o in outputs}
     assert category_ids == {"c-emergency", "c-vacation"}
 
@@ -465,9 +462,7 @@ async def test_execute_generator_dedups_on_second_run(
         card_type = "test_fixed"
         cadence = "daily"
 
-        async def run(
-            self, session: AsyncSession, settings, budget_id: str
-        ):  # type: ignore[no-untyped-def]
+        async def run(self, session: AsyncSession, settings, budget_id: str):  # type: ignore[no-untyped-def]
             return [
                 GeneratedInsight(
                     dedup_key="fixed:1",
@@ -502,14 +497,10 @@ async def test_execute_generator_records_failed_run(
         card_type = "test_broken"
         cadence = "daily"
 
-        async def run(
-            self, session: AsyncSession, settings, budget_id: str
-        ):  # type: ignore[no-untyped-def]
+        async def run(self, session: AsyncSession, settings, budget_id: str):  # type: ignore[no-untyped-def]
             raise RuntimeError("boom")
 
-    outcome = await execute_generator(
-        BrokenGenerator, db_session, get_settings(), "b-1"
-    )
+    outcome = await execute_generator(BrokenGenerator, db_session, get_settings(), "b-1")
     assert outcome.status == "error"
     assert outcome.error is not None and "boom" in outcome.error
 

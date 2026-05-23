@@ -24,9 +24,7 @@ def upgrade() -> None:
     op.add_column("categories", sa.Column("goal_type", sa.String(), nullable=True))
     op.add_column("categories", sa.Column("goal_target_cents", sa.BigInteger(), nullable=True))
     op.add_column("categories", sa.Column("goal_target_month", sa.Date(), nullable=True))
-    op.add_column(
-        "categories", sa.Column("goal_percentage_complete", sa.Integer(), nullable=True)
-    )
+    op.add_column("categories", sa.Column("goal_percentage_complete", sa.Integer(), nullable=True))
     op.add_column(
         "categories", sa.Column("goal_overall_left_cents", sa.BigInteger(), nullable=True)
     )

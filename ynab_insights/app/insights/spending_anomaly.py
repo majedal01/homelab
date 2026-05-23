@@ -74,9 +74,7 @@ class SpendingAnomalyGenerator(InsightGenerator):
         )
 
         # Index transactions by category, bucketed into the 13 weeks.
-        per_category_weeks: dict[str, list[int]] = defaultdict(
-            lambda: [0] * (BASELINE_WEEKS + 1)
-        )
+        per_category_weeks: dict[str, list[int]] = defaultdict(lambda: [0] * (BASELINE_WEEKS + 1))
         per_category_current: dict[str, list[Transaction]] = defaultdict(list)
         category_names: dict[str, str] = {}
 
@@ -152,9 +150,7 @@ class SpendingAnomalyGenerator(InsightGenerator):
             mean_dollars = mean / 100
             direction = "above" if z > 0 else "below"
             pct = abs(deviation_ratio) * 100
-            fallback_title = (
-                f"{category_names[category_id]} spending is {direction} usual"
-            )
+            fallback_title = f"{category_names[category_id]} spending is {direction} usual"
             fallback_summary = (
                 f"You spent ${current_dollars:.0f} on "
                 f"{category_names[category_id]} this week, "
@@ -173,10 +169,7 @@ class SpendingAnomalyGenerator(InsightGenerator):
             week_label = current_start.isocalendar()
             outputs.append(
                 GeneratedInsight(
-                    dedup_key=(
-                        f"anomaly:{category_id}:{week_label.year}-W"
-                        f"{week_label.week:02d}"
-                    ),
+                    dedup_key=(f"anomaly:{category_id}:{week_label.year}-W{week_label.week:02d}"),
                     title=enhanced.title,
                     summary=enhanced.summary,
                     structured_data=data.model_dump(mode="json"),

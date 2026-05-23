@@ -36,7 +36,7 @@ class EnhancedCopy:
 SYSTEM_PROMPT = (
     "You are a warm but concise personal finance coach writing one card for "
     "a user's insights feed. You receive a structured payload describing the "
-    "insight; respond with a JSON object {\"title\": str, \"summary\": str}. "
+    'insight; respond with a JSON object {"title": str, "summary": str}. '
     "Title: at most 60 characters, no trailing punctuation, no emoji. "
     "Summary: 1-2 sentences, plain prose, under 280 characters, no emoji, "
     "no markdown. Do not invent numbers; only reuse the figures in the "
@@ -60,9 +60,7 @@ async def enhance_copy(
     `used_llm`.
     """
     if settings.anthropic_api_key is None:
-        return EnhancedCopy(
-            title=fallback_title, summary=fallback_summary, used_llm=False
-        )
+        return EnhancedCopy(title=fallback_title, summary=fallback_summary, used_llm=False)
 
     user_message = json.dumps(
         {
@@ -86,7 +84,7 @@ async def enhance_copy(
             timeout=LLM_TIMEOUT_SECONDS,
         )
         text_block = next(
-            (b for b in response.content if getattr(b, "type", None) == "text"),
+            (b for b in response.content if isinstance(b, anthropic.types.TextBlock)),
             None,
         )
         if text_block is None:
@@ -98,8 +96,6 @@ async def enhance_copy(
             raise ValueError("empty title or summary from LLM")
     except (TimeoutError, anthropic.APIError, ValueError, KeyError, json.JSONDecodeError) as exc:
         logger.info("llm enhancement skipped (%s): %s", card_type, exc)
-        return EnhancedCopy(
-            title=fallback_title, summary=fallback_summary, used_llm=False
-        )
+        return EnhancedCopy(title=fallback_title, summary=fallback_summary, used_llm=False)
 
     return EnhancedCopy(title=title, summary=summary, used_llm=True)

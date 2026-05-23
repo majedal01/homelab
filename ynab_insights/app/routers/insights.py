@@ -78,11 +78,7 @@ async def list_insights(
     stmt = select(Insight).where(Insight.budget_id == resolved)
     if not include_dismissed:
         stmt = stmt.where(Insight.dismissed_at.is_(None))
-    stmt = (
-        stmt.order_by(Insight.refreshed_at.desc(), Insight.id.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    stmt = stmt.order_by(Insight.refreshed_at.desc(), Insight.id.desc()).limit(limit).offset(offset)
     rows = (await session.execute(stmt)).scalars().all()
     return [_to_response(r) for r in rows]
 

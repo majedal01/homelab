@@ -102,10 +102,7 @@ class GoalTrajectoryData(BaseModel):
 
 
 InsightStructuredData = Annotated[
-    SubscriptionAuditData
-    | SpendingAnomalyData
-    | CashflowForecastData
-    | GoalTrajectoryData,
+    SubscriptionAuditData | SpendingAnomalyData | CashflowForecastData | GoalTrajectoryData,
     Field(discriminator="card_type"),
 ]
 

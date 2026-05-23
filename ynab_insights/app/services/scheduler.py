@@ -84,9 +84,7 @@ def _make_insight_job(generator_cls: type[InsightGenerator]):  # type: ignore[no
                 )
                 return
             for budget in budgets:
-                outcome = await execute_generator(
-                    generator_cls, session, settings, budget.id
-                )
+                outcome = await execute_generator(generator_cls, session, settings, budget.id)
                 logger.info(
                     "scheduled %s for budget %s: status=%s created=%d updated=%d",
                     generator_cls.card_type,

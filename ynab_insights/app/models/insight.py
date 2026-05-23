@@ -26,7 +26,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
 
 if TYPE_CHECKING:
-    from app.models.budget import Budget
+    from app.models.budget import Budget  # noqa: F401  (Mapped[Budget] forward ref)
 
 
 class Insight(Base):
@@ -46,7 +46,7 @@ class Insight(Base):
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     llm_enhanced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    budget: Mapped["Budget"] = relationship()
+    budget: Mapped[Budget] = relationship()
 
     __table_args__ = (
         UniqueConstraint("budget_id", "dedup_key", name="uq_insights_budget_dedup"),
@@ -72,6 +72,4 @@ class InsightRun(Base):
     insights_updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    __table_args__ = (
-        Index("ix_insight_runs_card_type_started", "card_type", "started_at"),
-    )
+    __table_args__ = (Index("ix_insight_runs_card_type_started", "card_type", "started_at"),)

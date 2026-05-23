@@ -45,14 +45,18 @@ class CashflowForecastGenerator(InsightGenerator):
         start = today - timedelta(days=LOOKBACK_DAYS)
 
         accounts = (
-            await session.execute(
-                select(Account).where(
-                    Account.budget_id == budget_id,
-                    Account.closed.is_(False),
-                    Account.on_budget.is_(True),
+            (
+                await session.execute(
+                    select(Account).where(
+                        Account.budget_id == budget_id,
+                        Account.closed.is_(False),
+                        Account.on_budget.is_(True),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         starting_balance_cents = sum(a.balance_cents for a in accounts)
 
         txns = await list_transactions(
@@ -64,9 +68,7 @@ class CashflowForecastGenerator(InsightGenerator):
         )
         # Exclude transfers from cashflow; they're internal moves of money.
         non_transfer = [
-            t
-            for t in txns
-            if not (t.payee is not None and t.payee.transfer_account_id is not None)
+            t for t in txns if not (t.payee is not None and t.payee.transfer_account_id is not None)
         ]
         if not non_transfer:
             return []
@@ -88,9 +90,7 @@ class CashflowForecastGenerator(InsightGenerator):
             if t.category_id is not None and t.category is not None:
                 category_names[t.category_id] = t.category.name
 
-        top = sorted(category_totals.items(), key=lambda kv: kv[1], reverse=True)[
-            :TOP_CATEGORIES
-        ]
+        top = sorted(category_totals.items(), key=lambda kv: kv[1], reverse=True)[:TOP_CATEGORIES]
         top_rates = [
             CategoryRate(
                 category_id=cat_id,

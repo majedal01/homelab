@@ -6,7 +6,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 
-import app.insights  # noqa: F401  side-effect: registers insight generators
+from app import insights as _insights  # noqa: F401  side-effect: registers generators
 from app.config import get_settings
 from app.logging_config import setup_logging
 from app.routers import (

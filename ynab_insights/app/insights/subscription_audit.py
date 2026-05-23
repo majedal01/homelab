@@ -151,9 +151,7 @@ class SubscriptionAuditGenerator(InsightGenerator):
             outputs.append(await self._build_insight(cluster, settings))
         return outputs
 
-    async def _build_insight(
-        self, cluster: _Cluster, settings: Settings
-    ) -> GeneratedInsight:
+    async def _build_insight(self, cluster: _Cluster, settings: Settings) -> GeneratedInsight:
         absolute_cents = -cluster.amount_cents  # positive dollars charged
         monthly_cost_cents = round(absolute_cents * _monthly_factor(cluster.cadence))
         annual_cost_cents = monthly_cost_cents * 12
@@ -188,9 +186,7 @@ class SubscriptionAuditGenerator(InsightGenerator):
         )
 
         return GeneratedInsight(
-            dedup_key=(
-                f"subscription:{cluster.payee_id}:{absolute_cents}:{cluster.cadence}"
-            ),
+            dedup_key=(f"subscription:{cluster.payee_id}:{absolute_cents}:{cluster.cadence}"),
             title=enhanced.title,
             summary=enhanced.summary,
             structured_data=data.model_dump(mode="json"),

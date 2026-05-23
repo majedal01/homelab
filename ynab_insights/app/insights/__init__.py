@@ -8,7 +8,15 @@ requests.
 
 from __future__ import annotations
 
-# Re-export the public surface so callers can `from app.insights import ...`.
+# Side-effect imports: importing each generator module triggers the
+# @register_generator decorator at class-definition time, populating the
+# registry in app.insights.base.
+from app.insights import cashflow_forecast as _cashflow_forecast  # noqa: F401
+from app.insights import goal_trajectory as _goal_trajectory  # noqa: F401
+from app.insights import spending_anomaly as _spending_anomaly  # noqa: F401
+from app.insights import subscription_audit as _subscription_audit  # noqa: F401
+
+# Public surface re-exported so callers can `from app.insights import ...`.
 from app.insights.base import (
     GeneratedInsight,
     InsightGenerator,
@@ -17,16 +25,6 @@ from app.insights.base import (
     execute_generator,
     get_generator,
     register_generator,
-)
-
-# Importing each generator module triggers the @register_generator decorator at
-# class-definition time. Keep these imports at the bottom so the framework's
-# public surface remains importable even if a generator import fails.
-from app.insights import (  # noqa: E402, F401  (side-effect imports)
-    cashflow_forecast,
-    goal_trajectory,
-    spending_anomaly,
-    subscription_audit,
 )
 
 __all__ = [

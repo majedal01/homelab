@@ -171,9 +171,7 @@ async def execute_generator(
         counters.insight_runs_ok += 1
     except Exception as exc:  # noqa: BLE001
         # Caught broadly: scheduler must not crash on a misbehaving generator.
-        logger.exception(
-            "generator %s failed for budget %s", generator_cls.card_type, budget_id
-        )
+        logger.exception("generator %s failed for budget %s", generator_cls.card_type, budget_id)
         error = f"{type(exc).__name__}: {exc}"
         run.status = "error"
         run.error = error

@@ -184,9 +184,7 @@ async def test_list_filters_by_budget(seeded: AsyncSession, client: AsyncClient)
     assert rows[0]["id"] == 4
 
 
-async def test_get_insight_returns_payload(
-    seeded: AsyncSession, client: AsyncClient
-) -> None:
+async def test_get_insight_returns_payload(seeded: AsyncSession, client: AsyncClient) -> None:
     response = await client.get("/api/insights/2")
     assert response.status_code == 200
     payload = response.json()
@@ -222,12 +220,8 @@ async def test_runs_endpoint_lists_most_recent_first(
     assert rows[1]["status"] == "ok"
 
 
-async def test_runs_filter_by_card_type(
-    seeded: AsyncSession, client: AsyncClient
-) -> None:
-    response = await client.get(
-        "/api/insights/runs", params={"card_type": "subscription_audit"}
-    )
+async def test_runs_filter_by_card_type(seeded: AsyncSession, client: AsyncClient) -> None:
+    response = await client.get("/api/insights/runs", params={"card_type": "subscription_audit"})
     assert response.status_code == 200
     rows = response.json()
     assert [r["id"] for r in rows] == [10]
@@ -236,9 +230,7 @@ async def test_runs_filter_by_card_type(
 async def test_generate_runs_all_when_no_card_type(
     seeded: AsyncSession, client: AsyncClient
 ) -> None:
-    response = await client.post(
-        "/api/insights/generate", params={"budget_id": "b-1"}
-    )
+    response = await client.post("/api/insights/generate", params={"budget_id": "b-1"})
     assert response.status_code == 200
     payload = response.json()
     # Four registered generators → four run rows produced.
