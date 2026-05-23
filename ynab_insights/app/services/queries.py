@@ -90,6 +90,10 @@ async def spending_by_category(
     `spent_cents` stays negative (= sum of amount_cents for the category)
     so existing callers that flip the sign for display keep working.
     """
+    # Note: we deliberately do NOT filter `Account.closed.is_(False)` here.
+    # YNAB's Income vs. Expense report includes historical transactions on
+    # accounts the user has since closed, so excluding them would
+    # under-report spending for the month a closure happened in.
     stmt = (
         select(
             Category.id,
@@ -104,7 +108,6 @@ async def spending_by_category(
             Transaction.date >= start,
             Transaction.date <= end,
             Account.on_budget.is_(True),
-            Account.closed.is_(False),
             Category.name.notin_(INCOME_CATEGORY_NAMES),
         )
         .group_by(Category.id, Category.name)
@@ -200,12 +203,14 @@ async def monthly_summary(
 
     start = date(year, month, 1)
     end = date(year, month, monthrange(year, month)[1])
+    # Closed accounts intentionally NOT filtered out: YNAB's Income vs.
+    # Expense report includes historical transactions on accounts the user
+    # has since closed.
     base = (
         Transaction.budget_id == budget_id,
         Transaction.date >= start,
         Transaction.date <= end,
         Account.on_budget.is_(True),
-        Account.closed.is_(False),
     )
 
     # YNAB income lives in the built-in "Inflow: Ready to Assign" category;
@@ -297,12 +302,13 @@ async def period_summary(
       (and therefore reduce total spending).
     - On-budget accounts only; transfers excluded.
     """
+    # Closed accounts intentionally NOT excluded — see monthly_summary for
+    # the rationale (YNAB's Income vs. Expense report includes them).
     base_filter = (
         Transaction.budget_id == budget_id,
         Transaction.date >= start,
         Transaction.date <= end,
         Account.on_budget.is_(True),
-        Account.closed.is_(False),
     )
 
     income_stmt = _exclude_transfers(
@@ -467,12 +473,14 @@ async def monthly_trend(
     results: list[MonthlyTrendRow] = []
     for ms in _month_starts_back(date.today(), months):
         me = date(ms.year, ms.month, monthrange(ms.year, ms.month)[1])
+        # Closed accounts intentionally NOT excluded — their historical
+        # rows belong in the trend chart for months when the account was
+        # still active.
         base_filter = (
             Transaction.budget_id == budget_id,
             Transaction.date >= ms,
             Transaction.date <= me,
             Account.on_budget.is_(True),
-            Account.closed.is_(False),
         )
         # Spending matches YNAB's "Total Expenses": net of all amounts on
         # categorized rows, excluding the built-in income category. Refunds

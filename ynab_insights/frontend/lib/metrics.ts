@@ -125,7 +125,10 @@ export function savingsRate(incomeCents: number, spendingCents: number): number 
 }
 
 export function onBudgetAccountIdSet(accounts: AccountResponse[]): Set<string> {
-  return new Set(accounts.filter((a) => a.on_budget && !a.closed).map((a) => a.id));
+  // Closed accounts intentionally included: YNAB's reports still attribute
+  // historical transactions on a now-closed account to its on-budget bucket,
+  // and we mirror that so frontend rollups match the dashboard KPIs.
+  return new Set(accounts.filter((a) => a.on_budget).map((a) => a.id));
 }
 
 // ---- aggregations -----------------------------------------------------------
