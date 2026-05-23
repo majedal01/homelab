@@ -48,8 +48,7 @@ export default async function InsightsPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
           <p className="text-sm text-muted-foreground">
-            Forward-looking analysis, pattern detection, and coaching. Cards
-            refresh automatically; you can also regenerate on demand.
+            What&apos;s worth your attention this week.
           </p>
         </div>
         {selected ? <RegenerateButton budgetId={selected} /> : null}

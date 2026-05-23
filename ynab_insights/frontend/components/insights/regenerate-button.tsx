@@ -23,18 +23,15 @@ export function RegenerateButton({
         const errored = summary.runs.filter((r) => r.status === "error");
         const description =
           errored.length > 0
-            ? `${summary.created} new, ${summary.updated} refreshed, ${errored.length} errored`
-            : `${summary.created} new, ${summary.updated} refreshed`;
+            ? `${summary.created} new · ${summary.updated} refreshed · ${errored.length} errored`
+            : `${summary.created} new · ${summary.updated} refreshed`;
 
         if (summary.created === 0 && summary.updated === 0 && errored.length === 0) {
-          toast.message("No insights to surface yet", {
-            description:
-              "Generators ran but found nothing new — sync more data or wait for the next cadence.",
-          });
+          toast("Nothing new to surface.");
         } else if (errored.length > 0) {
           toast.warning("Regenerated with errors", { description });
         } else {
-          toast.success("Regenerated", { description });
+          toast("Regenerated", { description });
         }
 
         // revalidatePath alone marks the route stale but doesn't re-render
@@ -43,7 +40,7 @@ export function RegenerateButton({
         router.refresh();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        toast.error("Regeneration failed", { description: message });
+        toast.error("Couldn't regenerate.", { description: message });
       }
     });
   }

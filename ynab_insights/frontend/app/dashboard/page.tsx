@@ -210,8 +210,7 @@ export default async function DashboardPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            All flow-based KPIs respect the date picker. Net worth shows the
-            current balance regardless of range.
+            The numbers, for the selected range.
           </p>
         </div>
         <DateRangePicker />
@@ -274,9 +273,7 @@ export default async function DashboardPage({
       </div>
 
       <p className="text-center text-xs text-muted-foreground">
-        Spending = sum of net amounts on categorized rows over the selected
-        range (on-budget accounts, transfers excluded). Income = positive
-        amounts in the YNAB Ready-to-Assign category. Mirrors YNAB&apos;s{" "}
+        Mirrors YNAB&apos;s{" "}
         <Link
           href="https://github.com/majedal01/homelab/blob/main/ynab_insights/DESIGN.md"
           className="underline"
