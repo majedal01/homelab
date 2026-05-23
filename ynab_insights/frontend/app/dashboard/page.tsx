@@ -221,7 +221,7 @@ export default async function DashboardPage({
           label="Net worth"
           value={formatDollars(netWorthCents)}
           numericValue={netWorthCents}
-          formatAnimated={formatDollars}
+          format="dollars"
           delta={netWorthDelta}
           deltaLabel="across all open accounts"
           index={0}
@@ -231,7 +231,7 @@ export default async function DashboardPage({
           label="Spending"
           value={formatDollars(spendingNow)}
           numericValue={spendingNow}
-          formatAnimated={formatDollars}
+          format="dollars"
           delta={spendingDelta}
           deltaLabel="vs prior period"
           index={1}
@@ -240,9 +240,7 @@ export default async function DashboardPage({
           label="Income minus spending"
           value={`${surplusNow >= 0 ? "" : "-"}${formatDollars(Math.abs(surplusNow))}`}
           numericValue={surplusNow}
-          formatAnimated={(v) =>
-            `${v >= 0 ? "" : "-"}${formatDollars(Math.abs(v))}`
-          }
+          format="signed-dollars"
           delta={surplusDelta}
           deltaLabel="vs prior period"
           index={2}
@@ -254,7 +252,7 @@ export default async function DashboardPage({
           numericValue={
             savingsNow === null ? undefined : Math.round(savingsNow * 100)
           }
-          formatAnimated={(v) => `${v}%`}
+          format="percent"
           delta={savingsDelta}
           deltaLabel="vs prior period"
           index={3}
