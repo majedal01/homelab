@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 from typing import ClassVar
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
@@ -24,8 +24,8 @@ from app.insights.schemas import (
     CashflowForecastData,
     CategoryRate,
 )
-from app.models import Account, Transaction
-from app.services.queries import _exclude_transfers, spending_by_category
+from app.models import Account, Category, Transaction
+from app.services.queries import INCOME_CATEGORY_NAME, _exclude_transfers, spending_by_category
 
 LOOKBACK_DAYS = 90
 TOP_CATEGORIES = 5
@@ -80,18 +80,27 @@ class CashflowForecastGenerator(InsightGenerator):
         income_stmt = _exclude_transfers(
             select(func.coalesce(func.sum(Transaction.amount_cents), 0))
             .select_from(Transaction)
+            .outerjoin(Category, Category.id == Transaction.category_id)
             .join(Account, Account.id == Transaction.account_id)
             .where(
                 *base_filter,
                 Transaction.amount_cents > 0,
-                Transaction.category_id.is_(None),
+                or_(
+                    Transaction.category_id.is_(None),
+                    Category.name == INCOME_CATEGORY_NAME,
+                ),
             )
         )
         spending_stmt = _exclude_transfers(
             select(func.coalesce(func.sum(-Transaction.amount_cents), 0))
             .select_from(Transaction)
+            .outerjoin(Category, Category.id == Transaction.category_id)
             .join(Account, Account.id == Transaction.account_id)
-            .where(*base_filter, Transaction.category_id.is_not(None))
+            .where(
+                *base_filter,
+                Transaction.category_id.is_not(None),
+                Category.name != INCOME_CATEGORY_NAME,
+            )
         )
         lookback_income_cents = int((await session.execute(income_stmt)).scalar_one())
         lookback_spending_cents = int((await session.execute(spending_stmt)).scalar_one())

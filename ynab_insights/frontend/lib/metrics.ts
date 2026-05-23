@@ -10,6 +10,18 @@
 
 import type { AccountResponse, TransactionResponse } from "./api-types";
 
+/**
+ * YNAB's built-in income category. Positive amounts tagged to it are income
+ * (Ready to Assign), not spending. YNAB doesn't allow creating other income
+ * categories, so a hardcoded constant is enough — kept in sync with the
+ * backend's `app/services/queries.py::INCOME_CATEGORY_NAME`.
+ */
+export const INCOME_CATEGORY_NAME = "Inflow: Ready to Assign";
+
+function isIncomeCategory(name: string | null): boolean {
+  return name === INCOME_CATEGORY_NAME;
+}
+
 // ---- date helpers -----------------------------------------------------------
 
 export interface YearMonth {
@@ -58,14 +70,12 @@ export function netWorth(accounts: AccountResponse[]): number {
 /**
  * Total spending for the window, matching YNAB's "Total Expenses" semantics.
  *
- * YNAB defines expense per category as the NET of all transaction amounts
- * (outflows + refunds) on that category. Total Expenses is the sum across
- * categories. A category that nets to a refund (Education with +$156)
- * reduces total expenses — that's intentional in YNAB and we mirror it here.
- *
- * Uncategorized transactions (category_id = null) are excluded; they live
- * on the income side or are unfiled spend the user hasn't sorted yet.
- * Transfers and tracking-account rows are excluded as well.
+ * Per-category, expenses are the NET of all transaction amounts on that
+ * category. The built-in `Inflow: Ready to Assign` category is income, not
+ * spending, so it's skipped entirely. Uncategorized rows (category_id =
+ * null) are also skipped — they represent unsorted activity that YNAB
+ * itself doesn't roll into the Expense column. A category that nets to a
+ * refund (Education with +$156) reduces total expenses, mirroring YNAB.
  */
 export function spendingFromTransactions(
   transactions: TransactionResponse[],
@@ -76,15 +86,20 @@ export function spendingFromTransactions(
     if (t.transfer_account_id) continue;
     if (!onBudgetAccountIds.has(t.account_id)) continue;
     if (t.category_id === null) continue;
+    if (isIncomeCategory(t.category_name)) continue;
     total += -t.amount_cents;
   }
   return total;
 }
 
 /**
- * Income for the window, matching YNAB's "Total Income": positive amounts
- * with no category (Ready to Assign). Refunds posted to expense categories
- * are NOT income — they reduce that category's net spend.
+ * Income for the window, matching YNAB's "Total Income".
+ *
+ * YNAB tags income transactions to the built-in `Inflow: Ready to Assign`
+ * category. Some users (or pre-import data) may leave income uncategorized
+ * (null category); both shapes count. Negative amounts in the income
+ * category are treated as adjustments (e.g. clawed-back deposit) and
+ * reduce income.
  */
 export function incomeFromTransactions(
   transactions: TransactionResponse[],
@@ -94,8 +109,10 @@ export function incomeFromTransactions(
   for (const t of transactions) {
     if (t.transfer_account_id) continue;
     if (!onBudgetAccountIds.has(t.account_id)) continue;
-    if (t.category_id !== null) continue;
-    if (t.amount_cents <= 0) continue;
+    const isNull = t.category_id === null;
+    const isIncomeCat = isIncomeCategory(t.category_name);
+    if (!isNull && !isIncomeCat) continue;
+    if (isNull && t.amount_cents <= 0) continue;
     total += t.amount_cents;
   }
   return total;
@@ -142,6 +159,10 @@ export function categoryBreakdown(
   for (const t of transactions) {
     if (t.transfer_account_id) continue;
     if (!onBudgetAccountIds.has(t.account_id)) continue;
+    // YNAB's built-in income category isn't spending — skip it entirely.
+    if (isIncomeCategory(t.category_name)) continue;
+    // Null-category positives are unclassified income, not refunds against
+    // the Uncategorized bucket.
     if (t.category_id === null && t.amount_cents > 0) continue;
     const key = t.category_id ?? "__uncategorized__";
     const entry = byCategory.get(key) ?? {
