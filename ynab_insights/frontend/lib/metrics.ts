@@ -56,10 +56,16 @@ export function netWorth(accounts: AccountResponse[]): number {
 }
 
 /**
- * "Spending" = sum of negative transaction amounts, on-budget accounts only,
- * transfers excluded, returned as a positive number. Mirrors backend's
- * `_exclude_transfers` filter; the input transaction list must already be
- * filtered to the target month.
+ * Total spending for the window, matching YNAB's "Total Expenses" semantics.
+ *
+ * YNAB defines expense per category as the NET of all transaction amounts
+ * (outflows + refunds) on that category. Total Expenses is the sum across
+ * categories. A category that nets to a refund (Education with +$156)
+ * reduces total expenses — that's intentional in YNAB and we mirror it here.
+ *
+ * Uncategorized transactions (category_id = null) are excluded; they live
+ * on the income side or are unfiled spend the user hasn't sorted yet.
+ * Transfers and tracking-account rows are excluded as well.
  */
 export function spendingFromTransactions(
   transactions: TransactionResponse[],
@@ -67,23 +73,29 @@ export function spendingFromTransactions(
 ): number {
   let total = 0;
   for (const t of transactions) {
-    if (t.amount_cents >= 0) continue;
     if (t.transfer_account_id) continue;
     if (!onBudgetAccountIds.has(t.account_id)) continue;
+    if (t.category_id === null) continue;
     total += -t.amount_cents;
   }
   return total;
 }
 
+/**
+ * Income for the window, matching YNAB's "Total Income": positive amounts
+ * with no category (Ready to Assign). Refunds posted to expense categories
+ * are NOT income — they reduce that category's net spend.
+ */
 export function incomeFromTransactions(
   transactions: TransactionResponse[],
   onBudgetAccountIds: Set<string>,
 ): number {
   let total = 0;
   for (const t of transactions) {
-    if (t.amount_cents <= 0) continue;
     if (t.transfer_account_id) continue;
     if (!onBudgetAccountIds.has(t.account_id)) continue;
+    if (t.category_id !== null) continue;
+    if (t.amount_cents <= 0) continue;
     total += t.amount_cents;
   }
   return total;
@@ -108,33 +120,41 @@ export interface CategorySpendRow {
 }
 
 /**
- * Net spending by category for a given transaction window. Sums BOTH inflows
- * and outflows tagged to each category so refunds posted to the same
- * category (e.g. "Reimbursable Expenses" with the expense as outflow and
- * the employer payment as inflow) cancel each other out. Transfers are
- * always excluded. Categories with a non-positive net spend (refunds met
- * or exceeded outflows) are dropped from the result.
+ * Net spend per category for a given transaction window. Returns the
+ * signed net (positive `spent_cents` = net outflow, negative = net refund)
+ * so callers can choose whether to filter for display.
+ *
+ * Filters baked in:
+ * - Transfers (`transfer_account_id` set) excluded.
+ * - Off-budget (tracking) account rows excluded.
+ * - Positive amounts with a null category excluded (those are income,
+ *   not refunds against the Uncategorized bucket).
+ *
+ * For the dashboard donut, filter `spent_cents > 0` at the display layer
+ * to drop refund-net categories. For the categories list, render the
+ * signed value so refunds surface visibly.
  */
 export function categoryBreakdown(
   transactions: TransactionResponse[],
+  onBudgetAccountIds: Set<string>,
 ): CategorySpendRow[] {
   const byCategory = new Map<string, CategorySpendRow>();
   for (const t of transactions) {
     if (t.transfer_account_id) continue;
+    if (!onBudgetAccountIds.has(t.account_id)) continue;
+    if (t.category_id === null && t.amount_cents > 0) continue;
     const key = t.category_id ?? "__uncategorized__";
     const entry = byCategory.get(key) ?? {
       category_id: t.category_id,
       category_name: t.category_name,
       spent_cents: 0,
     };
-    // Net: subtract amount so outflows accumulate as positive spend and
-    // inflows reduce the bucket.
     entry.spent_cents += -t.amount_cents;
     byCategory.set(key, entry);
   }
-  return [...byCategory.values()]
-    .filter((row) => row.spent_cents > 0)
-    .sort((a, b) => b.spent_cents - a.spent_cents);
+  return [...byCategory.values()].sort(
+    (a, b) => b.spent_cents - a.spent_cents,
+  );
 }
 
 export interface MonthlyTrendPoint {

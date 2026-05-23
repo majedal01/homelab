@@ -3,12 +3,18 @@ import { PieChart } from "lucide-react";
 
 import { apiFetch, getSelectedBudgetId, qs } from "@/lib/api";
 import type {
+  AccountResponse,
   BudgetResponse,
   CategoryResponse,
   TransactionResponse,
 } from "@/lib/api-types";
 import { formatDollars } from "@/lib/utils";
-import { currentMonth, monthBounds, categoryBreakdown } from "@/lib/metrics";
+import {
+  categoryBreakdown,
+  currentMonth,
+  monthBounds,
+  onBudgetAccountIdSet,
+} from "@/lib/metrics";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DateRangePicker } from "@/components/date-range-picker";
@@ -43,7 +49,7 @@ export default async function CategoriesPage({
   const from = params.date_from ?? defaultBounds.from;
   const to = params.date_to ?? defaultBounds.to;
 
-  const [categories, txns] = await Promise.all([
+  const [categories, txns, accounts] = await Promise.all([
     apiFetch<CategoryResponse[]>(`/categories${qs({ budget_id: selected })}`),
     apiFetch<TransactionResponse[]>(
       `/transactions${qs({
@@ -53,16 +59,24 @@ export default async function CategoriesPage({
         limit: 500,
       })}`,
     ),
+    apiFetch<AccountResponse[]>(`/accounts${qs({ budget_id: selected })}`),
   ]);
 
-  const breakdownRows = categoryBreakdown(txns);
+  const onBudgetIds = onBudgetAccountIdSet(accounts);
+  const breakdownRows = categoryBreakdown(txns, onBudgetIds);
   const breakdownById = new Map(
     breakdownRows
       .filter((r) => r.category_id)
       .map((r) => [r.category_id as string, r.spent_cents]),
   );
 
-  const maxSpend = breakdownRows[0]?.spent_cents ?? 0;
+  // Max spend drives the bar widths; only positive nets get bars.
+  const maxSpend = breakdownRows.reduce(
+    (m, r) => (r.spent_cents > m ? r.spent_cents : m),
+    0,
+  );
+  // Sum every net (positive and negative) so the total mirrors YNAB's
+  // "Total Expenses" — refunds in a category reduce the total naturally.
   const totalSpend = breakdownRows.reduce((s, r) => s + r.spent_cents, 0);
 
   const rows = categories
@@ -117,10 +131,18 @@ export default async function CategoriesPage({
                       </div>
                       <span
                         className={`font-mono tabular-nums ${
-                          row.spent > 0 ? "text-destructive" : "text-muted-foreground"
+                          row.spent > 0
+                            ? "text-destructive"
+                            : row.spent < 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-muted-foreground"
                         }`}
                       >
-                        {row.spent > 0 ? formatDollars(row.spent) : "—"}
+                        {row.spent === 0
+                          ? "—"
+                          : row.spent > 0
+                            ? formatDollars(row.spent)
+                            : `+${formatDollars(-row.spent)}`}
                       </span>
                     </div>
                     {row.spent > 0 ? (

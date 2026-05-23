@@ -54,12 +54,22 @@ export function CashflowForecastDetail({
           adjustments below.
         </div>
       </div>
-      <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
-        Math: starting balance ({formatDollars(data.starting_balance_cents)})
-        + net daily cashflow ({formatDollars(data.daily_net_cents)}/day,
-        averaged across your last {data.lookback_days} days of on-budget
-        income and spending) × number of days. Tracking accounts and
-        transfers are excluded.
+      <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+        <p>
+          Math: starting balance ({formatDollars(data.starting_balance_cents)})
+          + net daily cashflow ({formatDollars(data.daily_net_cents)}/day) ×
+          number of days. Tracking accounts and transfers are excluded.
+        </p>
+        <p>
+          Over the last {data.lookback_days} days on on-budget accounts:
+          income {formatDollars(data.lookback_income_cents)} − spending{" "}
+          {formatDollars(data.lookback_spending_cents)} ={" "}
+          {formatDollars(
+            data.lookback_income_cents - data.lookback_spending_cents,
+          )}{" "}
+          net, ÷ {data.lookback_days} days = daily net{" "}
+          {formatDollars(data.daily_net_cents)}.
+        </p>
       </div>
       <div>
         <h2 className="text-sm font-semibold tracking-tight">

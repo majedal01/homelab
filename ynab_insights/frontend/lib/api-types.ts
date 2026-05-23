@@ -163,6 +163,8 @@ export interface CashflowForecastData {
   projected_60d_cents: number;
   projected_90d_cents: number;
   lookback_days: number;
+  lookback_income_cents: number;
+  lookback_spending_cents: number;
   top_spending_categories: CategoryRate[];
 }
 

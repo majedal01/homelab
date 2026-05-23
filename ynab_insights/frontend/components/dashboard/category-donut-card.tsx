@@ -32,9 +32,12 @@ export interface CategoryDonutCardProps {
 
 export function CategoryDonutCard({ rows, rangeLabel }: CategoryDonutCardProps) {
   const { sliced, total } = React.useMemo(() => {
-    if (!rows.length) return { sliced: [], total: 0 };
-    const top = rows.slice(0, TOP_N);
-    const rest = rows.slice(TOP_N);
+    // Donut only draws positive net-spending slices; refund-net categories
+    // are still shown elsewhere (categories page) but don't fit a pie chart.
+    const positive = rows.filter((r) => r.spent_cents > 0);
+    if (!positive.length) return { sliced: [], total: 0 };
+    const top = positive.slice(0, TOP_N);
+    const rest = positive.slice(TOP_N);
     const otherTotal = rest.reduce((s, r) => s + r.spent_cents, 0);
     const list = top.map((r, i) => ({
       name: r.category_name ?? "Uncategorized",
