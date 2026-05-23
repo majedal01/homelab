@@ -17,7 +17,6 @@ import {
   monthLabel,
   monthsWindow,
   netWorth,
-  previousMonth,
   savingsRate,
   type CategorySpendRow,
   type MonthlyTrendPoint,
