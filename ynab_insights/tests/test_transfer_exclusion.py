@@ -142,11 +142,17 @@ async def test_monthly_summary_excludes_transfers_from_inflow_and_outflow(
     today = date.today()
     result = await monthly_summary(seeded, "b-1", today.year, today.month)
 
-    # Inflow: only the paycheck (+500000). Transfer inflow (+50000) excluded.
+    # Inflow ("Total Income"): YNAB defines this as positive amounts in the
+    # null category (Ready to Assign). Only the paycheck qualifies; the
+    # transfer inflow is excluded by the transfer filter.
     assert result.total_inflow_cents == 500000
-    # Outflow: rent (-150000) + atm fee (-2500). Transfer outflow (-50000) excluded.
-    assert result.total_outflow_cents == -152500
-    # Count: 5 total in seed - 2 transfers = 3 (paycheck, rent, atm)
+    # Outflow ("Total Expenses"): sum of all amounts on categorized rows on
+    # on-budget accounts. Rent is the only categorized row in seed — atm fee
+    # is uncategorized so it doesn't count toward expenses, and the transfer
+    # outflow is excluded.
+    assert result.total_outflow_cents == -150000
+    # Transaction count includes every on-budget non-transfer row regardless
+    # of category — paycheck, rent, atm fee.
     assert result.transaction_count == 3
 
 

@@ -149,7 +149,7 @@ export default async function DashboardPage({
     };
   });
 
-  const donutRows = categoryBreakdown(donutTxns ?? thisMonthTxns);
+  const donutRows = categoryBreakdown(donutTxns ?? thisMonthTxns, onBudgetIds);
   const donutRangeLabel = `${donutFrom} → ${donutTo}`;
 
   return (

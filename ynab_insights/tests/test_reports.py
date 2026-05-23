@@ -8,7 +8,7 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Account, Budget, Payee, Transaction
+from app.models import Account, Budget, Category, Payee, Transaction
 
 
 @pytest_asyncio.fixture
@@ -61,14 +61,23 @@ async def seeded(db_session: AsyncSession) -> AsyncSession:
             transfer_account_id="a-tracking",
         )
     )
+    db_session.add(
+        Category(
+            id="c-spend",
+            budget_id="b-1",
+            category_group_id=None,
+            name="Spending",
+            hidden=False,
+        )
+    )
     db_session.add_all(
         [
-            # On-budget spending this month: $100
+            # On-budget spending this month: $100 (categorized = counts as expense)
             Transaction(
                 id="t-this-spend",
                 budget_id="b-1",
                 account_id="a-1",
-                category_id=None,
+                category_id="c-spend",
                 payee_id="p-1",
                 date=date(today.year, today.month, 1),
                 amount_cents=-10000,
@@ -76,7 +85,7 @@ async def seeded(db_session: AsyncSession) -> AsyncSession:
                 cleared="cleared",
                 approved=True,
             ),
-            # On-budget income this month: $500
+            # On-budget income this month: $500 (null category = counts as income)
             Transaction(
                 id="t-this-income",
                 budget_id="b-1",
@@ -94,7 +103,7 @@ async def seeded(db_session: AsyncSession) -> AsyncSession:
                 id="t-last-spend",
                 budget_id="b-1",
                 account_id="a-1",
-                category_id=None,
+                category_id="c-spend",
                 payee_id="p-1",
                 date=last_month,
                 amount_cents=-20000,
@@ -102,12 +111,12 @@ async def seeded(db_session: AsyncSession) -> AsyncSession:
                 cleared="cleared",
                 approved=True,
             ),
-            # Transfer should be excluded
+            # Transfer should be excluded (categorized but transfer payee).
             Transaction(
                 id="t-xfer",
                 budget_id="b-1",
                 account_id="a-1",
-                category_id=None,
+                category_id="c-spend",
                 payee_id="p-xfer",
                 date=date(today.year, today.month, 5),
                 amount_cents=-50000,
@@ -120,7 +129,7 @@ async def seeded(db_session: AsyncSession) -> AsyncSession:
                 id="t-tracking",
                 budget_id="b-1",
                 account_id="a-tracking",
-                category_id=None,
+                category_id="c-spend",
                 payee_id="p-1",
                 date=date(today.year, today.month, 7),
                 amount_cents=-99999,
