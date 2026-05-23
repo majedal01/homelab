@@ -12,6 +12,10 @@ os.environ.setdefault("APP_ENV", "stage")
 os.environ.setdefault("APP_VERSION", "test")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("SYNC_INTERVAL_MINUTES", "0")
+# Disable cron-driven insight jobs so the LifespanManager-backed client
+# fixture doesn't spin them up during tests; per-test generation still
+# runs by calling execute_generator directly or via /api/insights/generate.
+os.environ.setdefault("INSIGHTS_GENERATION_ENABLED", "false")
 
 from collections.abc import AsyncIterator  # noqa: E402
 

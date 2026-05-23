@@ -110,22 +110,27 @@ async def test_scheduled_sync_swallows_in_progress_error(
         get_settings().ynab_token = None
 
 
-async def test_build_scheduler_returns_none_when_disabled() -> None:
+async def test_build_scheduler_returns_none_when_all_disabled() -> None:
     from app.config import get_settings
 
-    original = get_settings().sync_interval_minutes
-    get_settings().sync_interval_minutes = 0
+    settings = get_settings()
+    original_sync = settings.sync_interval_minutes
+    original_insights = settings.insights_generation_enabled
+    settings.sync_interval_minutes = 0
+    settings.insights_generation_enabled = False
     try:
         assert build_scheduler() is None
     finally:
-        get_settings().sync_interval_minutes = original
+        settings.sync_interval_minutes = original_sync
+        settings.insights_generation_enabled = original_insights
 
 
-async def test_build_scheduler_configures_job_when_enabled() -> None:
+async def test_build_scheduler_configures_sync_job_when_enabled() -> None:
     from app.config import get_settings
 
-    original = get_settings().sync_interval_minutes
-    get_settings().sync_interval_minutes = 15
+    settings = get_settings()
+    original = settings.sync_interval_minutes
+    settings.sync_interval_minutes = 15
     try:
         scheduler = build_scheduler()
         assert scheduler is not None
@@ -133,7 +138,31 @@ async def test_build_scheduler_configures_job_when_enabled() -> None:
         assert job is not None
         assert job.trigger.interval.total_seconds() == 15 * 60
     finally:
-        get_settings().sync_interval_minutes = original
+        settings.sync_interval_minutes = original
+
+
+async def test_build_scheduler_registers_insight_jobs_when_enabled() -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    original_sync = settings.sync_interval_minutes
+    original_insights = settings.insights_generation_enabled
+    settings.sync_interval_minutes = 0
+    settings.insights_generation_enabled = True
+    try:
+        scheduler = build_scheduler()
+        assert scheduler is not None
+        expected_ids = {
+            "insights_subscription_audit",
+            "insights_spending_anomaly",
+            "insights_cashflow_forecast",
+            "insights_goal_trajectory",
+        }
+        registered = {job.id for job in scheduler.get_jobs()}
+        assert expected_ids.issubset(registered)
+    finally:
+        settings.sync_interval_minutes = original_sync
+        settings.insights_generation_enabled = original_insights
 
 
 async def _delay_then_release(delay: float) -> None:
