@@ -4,10 +4,25 @@ import * as React from "react";
 import { motion } from "motion/react";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn, formatDollars } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { CountUp } from "@/components/brand/count-up";
 import type { DeltaInfo } from "@/lib/metrics";
+
+/**
+ * Format mode for the animated value. Passed as a string discriminator
+ * (rather than a `(v) => string` callback) so the dashboard server
+ * component can supply it without violating the RSC rule that bans
+ * functions in client-component props.
+ */
+export type KpiFormat = "dollars" | "signed-dollars" | "percent";
+
+const FORMATTERS: Record<KpiFormat, (v: number) => string> = {
+  dollars: (v) => formatDollars(v),
+  "signed-dollars": (v) =>
+    `${v >= 0 ? "" : "-"}${formatDollars(Math.abs(v))}`,
+  percent: (v) => `${v}%`,
+};
 
 export interface KpiCardProps {
   label: string;
@@ -26,11 +41,11 @@ export interface KpiCardProps {
   valueClassName?: string;
   /**
    * Optional numeric counterpart that enables the count-up animation. When
-   * provided alongside `formatAnimated`, the card tweens 0 → numericValue
-   * once on first viewport entry. Otherwise the static `value` renders.
+   * provided alongside `format`, the card tweens 0 → numericValue once on
+   * first viewport entry. Otherwise the static `value` renders.
    */
   numericValue?: number;
-  formatAnimated?: (v: number) => string;
+  format?: KpiFormat;
 }
 
 const directionStyles: Record<NonNullable<DeltaInfo["direction"]>, string> = {
@@ -59,8 +74,9 @@ export function KpiCard({
   index = 0,
   valueClassName,
   numericValue,
-  formatAnimated,
+  format,
 }: KpiCardProps) {
+  const formatter = format ? FORMATTERS[format] : undefined;
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -72,10 +88,10 @@ export function KpiCard({
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {label}
           </span>
-          {numericValue !== undefined && formatAnimated ? (
+          {numericValue !== undefined && formatter ? (
             <CountUp
               value={numericValue}
-              format={formatAnimated}
+              format={formatter}
               className={cn(
                 "font-mono text-3xl font-semibold tabular-nums",
                 valueClassName,
