@@ -230,11 +230,14 @@ async def test_runs_filter_by_card_type(seeded: AsyncSession, client: AsyncClien
 async def test_generate_runs_all_when_no_card_type(
     seeded: AsyncSession, client: AsyncClient
 ) -> None:
+    from app.insights import all_generators
+
     response = await client.post("/api/insights/generate", params={"budget_id": "b-1"})
     assert response.status_code == 200
     payload = response.json()
-    # Four registered generators → four run rows produced.
-    assert len(payload["run_ids"]) == 4
+    # One run row per registered generator. Pinned to the live registry so
+    # adding a card type doesn't silently stale this assertion.
+    assert len(payload["run_ids"]) == len(all_generators())
 
 
 async def test_generate_rejects_unknown_card_type(

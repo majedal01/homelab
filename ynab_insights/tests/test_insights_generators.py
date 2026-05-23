@@ -646,12 +646,10 @@ async def test_category_drift_flags_upward_drift(db_session: AsyncSession, budge
             closed=False,
         )
     )
-    # First 9 months at $40, then trailing quarter (months 9-11 inclusive)
-    # bumped to $400. The generator's trailing window is months 8-10 (the
-    # three months before the current incomplete one at index 11), so the
-    # baseline averages ~$40 and the trailing averages ~$400 — well above
-    # the 15% / $50 thresholds.
-    spend = [4000] * 9 + [40000, 40000, 40000]
+    # Baseline: 8 months at $40 (the full prior window indexes 0-7).
+    # Trailing quarter (indexes 8-10) bumped to $400. Index 11 is the
+    # current incomplete month — the generator ignores it.
+    spend = [4000] * 8 + [40000, 40000, 40000, 40000]
     await _seed_category_drift_history(
         db_session,
         category_id="c-grocery",
@@ -665,7 +663,7 @@ async def test_category_drift_flags_upward_drift(db_session: AsyncSession, budge
     payload = outputs[0].structured_data
     assert payload["category_name"] == "Groceries"
     assert payload["direction"] == "up"
-    assert payload["drift_pct"] > 0.5
+    assert payload["drift_pct"] > 5.0  # 900% with these numbers
     assert payload["drift_cents_per_month"] > 30000
 
 
@@ -750,7 +748,7 @@ async def test_category_drift_flags_downward_drift(
             closed=False,
         )
     )
-    spend = [50000] * 9 + [5000, 5000, 5000]
+    spend = [50000] * 8 + [5000, 5000, 5000, 5000]
     await _seed_category_drift_history(
         db_session,
         category_id="c-dining",
