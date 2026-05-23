@@ -126,12 +126,14 @@ async def test_spending_by_category_excludes_transfer_outflow(seeded: AsyncSessi
     result = await spending_by_category(seeded, "b-1", today.replace(day=1), today)
     by_name = {r.category_name or "Uncategorized": r.spent_cents for r in result}
 
-    # Rent is real spending - included
+    # Rent is real net spending - included
     assert by_name["Rent"] == -150000
-    # ATM fee (no payee) - included as Uncategorized
-    assert by_name["Uncategorized"] == -2500
-    # Transfer outflow (-50000) MUST NOT appear in either bucket
-    assert by_name["Rent"] != -200000  # would be -150000 + -50000 if transfer leaked
+    # Transfer outflow (-50000) must not leak into Rent
+    assert by_name["Rent"] != -200000
+    # Uncategorized bucket: paycheck (+500000) and atm fee (-2500) sum to a
+    # positive net, so the bucket is correctly omitted from the spending view
+    # by the "net outflow only" HAVING filter.
+    assert "Uncategorized" not in by_name
 
 
 async def test_monthly_summary_excludes_transfers_from_inflow_and_outflow(
@@ -146,3 +148,123 @@ async def test_monthly_summary_excludes_transfers_from_inflow_and_outflow(
     assert result.total_outflow_cents == -152500
     # Count: 5 total in seed - 2 transfers = 3 (paycheck, rent, atm)
     assert result.transaction_count == 3
+
+
+async def test_spending_by_category_nets_inflows_against_outflows(
+    db_session: AsyncSession,
+) -> None:
+    """Reimbursable Expenses: a $100 outflow tagged to the category plus a
+    $100 inflow tagged to the same category should net to zero and be
+    omitted from the spending view entirely. Categories that net positive
+    (more refunds than spend) are also omitted."""
+    today = date.today()
+    db_session.add_all(
+        [
+            Budget(
+                id="b-r",
+                name="R",
+                currency="USD",
+                last_modified_on=datetime(2026, 5, 1, tzinfo=UTC),
+            ),
+            Account(
+                id="a-r",
+                budget_id="b-r",
+                name="Checking",
+                type="checking",
+                balance_cents=0,
+                on_budget=True,
+                closed=False,
+            ),
+            Category(
+                id="c-reimb",
+                budget_id="b-r",
+                category_group_id=None,
+                name="Reimbursable Expenses",
+                hidden=False,
+            ),
+            Category(
+                id="c-net-refund",
+                budget_id="b-r",
+                category_group_id=None,
+                name="Net Refunded",
+                hidden=False,
+            ),
+            Category(
+                id="c-real",
+                budget_id="b-r",
+                category_group_id=None,
+                name="Groceries",
+                hidden=False,
+            ),
+            # Reimbursable Expenses: cancels out.
+            Transaction(
+                id="t-reimb-out",
+                budget_id="b-r",
+                account_id="a-r",
+                category_id="c-reimb",
+                payee_id=None,
+                date=today,
+                amount_cents=-10000,
+                memo="lunch",
+                cleared="cleared",
+                approved=True,
+            ),
+            Transaction(
+                id="t-reimb-in",
+                budget_id="b-r",
+                account_id="a-r",
+                category_id="c-reimb",
+                payee_id=None,
+                date=today,
+                amount_cents=10000,
+                memo="employer refund",
+                cleared="cleared",
+                approved=True,
+            ),
+            # Net Refunded: inflow > outflow, so this category is net-positive.
+            Transaction(
+                id="t-refund-out",
+                budget_id="b-r",
+                account_id="a-r",
+                category_id="c-net-refund",
+                payee_id=None,
+                date=today,
+                amount_cents=-2000,
+                memo=None,
+                cleared="cleared",
+                approved=True,
+            ),
+            Transaction(
+                id="t-refund-in",
+                budget_id="b-r",
+                account_id="a-r",
+                category_id="c-net-refund",
+                payee_id=None,
+                date=today,
+                amount_cents=5000,
+                memo=None,
+                cleared="cleared",
+                approved=True,
+            ),
+            # Real net spending.
+            Transaction(
+                id="t-groc",
+                budget_id="b-r",
+                account_id="a-r",
+                category_id="c-real",
+                payee_id=None,
+                date=today,
+                amount_cents=-7500,
+                memo=None,
+                cleared="cleared",
+                approved=True,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    result = await spending_by_category(db_session, "b-r", today.replace(day=1), today)
+    names = {r.category_name for r in result}
+    assert "Groceries" in names
+    assert "Reimbursable Expenses" not in names  # net to zero
+    assert "Net Refunded" not in names  # net positive (more refund than spend)

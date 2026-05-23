@@ -108,16 +108,18 @@ export interface CategorySpendRow {
 }
 
 /**
- * Group spending by category for a given transaction window. Skips transfers
- * and non-negative rows. Sort: largest spend first (most negative ascending,
- * after flipping to positive).
+ * Net spending by category for a given transaction window. Sums BOTH inflows
+ * and outflows tagged to each category so refunds posted to the same
+ * category (e.g. "Reimbursable Expenses" with the expense as outflow and
+ * the employer payment as inflow) cancel each other out. Transfers are
+ * always excluded. Categories with a non-positive net spend (refunds met
+ * or exceeded outflows) are dropped from the result.
  */
 export function categoryBreakdown(
   transactions: TransactionResponse[],
 ): CategorySpendRow[] {
   const byCategory = new Map<string, CategorySpendRow>();
   for (const t of transactions) {
-    if (t.amount_cents >= 0) continue;
     if (t.transfer_account_id) continue;
     const key = t.category_id ?? "__uncategorized__";
     const entry = byCategory.get(key) ?? {
@@ -125,10 +127,14 @@ export function categoryBreakdown(
       category_name: t.category_name,
       spent_cents: 0,
     };
+    // Net: subtract amount so outflows accumulate as positive spend and
+    // inflows reduce the bucket.
     entry.spent_cents += -t.amount_cents;
     byCategory.set(key, entry);
   }
-  return [...byCategory.values()].sort((a, b) => b.spent_cents - a.spent_cents);
+  return [...byCategory.values()]
+    .filter((row) => row.spent_cents > 0)
+    .sort((a, b) => b.spent_cents - a.spent_cents);
 }
 
 export interface MonthlyTrendPoint {
