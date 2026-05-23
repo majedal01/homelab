@@ -12,6 +12,7 @@ from __future__ import annotations
 # @register_generator decorator at class-definition time, populating the
 # registry in app.insights.base.
 from app.insights import cashflow_forecast as _cashflow_forecast  # noqa: F401
+from app.insights import category_drift as _category_drift  # noqa: F401
 from app.insights import goal_trajectory as _goal_trajectory  # noqa: F401
 from app.insights import spending_anomaly as _spending_anomaly  # noqa: F401
 from app.insights import subscription_audit as _subscription_audit  # noqa: F401

@@ -18,6 +18,7 @@ from app.config import get_settings
 from app.insights import all_generators, execute_generator
 from app.insights.base import GeneratedInsight, InsightGenerator
 from app.insights.cashflow_forecast import CashflowForecastGenerator
+from app.insights.category_drift import CategoryDriftGenerator
 from app.insights.goal_trajectory import GoalTrajectoryGenerator
 from app.insights.spending_anomaly import SpendingAnomalyGenerator
 from app.insights.subscription_audit import SubscriptionAuditGenerator
@@ -56,6 +57,8 @@ async def test_all_generators_registered() -> None:
         "spending_anomaly",
         "cashflow_forecast",
         "goal_trajectory",
+        "category_drift",
+        "year_in_money",
     }
 
 
@@ -584,3 +587,139 @@ async def test_execute_generator_records_failed_run(
     assert len(runs) == 1
     assert runs[0].status == "error"
     assert runs[0].error is not None and "boom" in runs[0].error
+
+
+async def _seed_category_drift_history(
+    db_session: AsyncSession,
+    *,
+    category_id: str,
+    category_name: str,
+    monthly_outflows: list[int],
+) -> None:
+    """Build a 12-month synthetic spending history for one category, with
+    one transaction per month dated on the 15th. `monthly_outflows` is
+    oldest-first and positive (we negate so they land as outflow rows)."""
+    today = date.today()
+    db_session.add(
+        Category(
+            id=category_id,
+            budget_id="b-1",
+            category_group_id=None,
+            name=category_name,
+            hidden=False,
+        )
+    )
+    for offset, amount in enumerate(monthly_outflows):
+        # offset 0 = 11 months ago, offset 11 = current month.
+        months_back = len(monthly_outflows) - 1 - offset
+        year = today.year
+        month = today.month - months_back
+        while month <= 0:
+            month += 12
+            year -= 1
+        db_session.add(
+            Transaction(
+                id=f"t-{category_id}-{offset}",
+                budget_id="b-1",
+                account_id="a-1",
+                category_id=category_id,
+                payee_id=None,
+                date=date(year, month, 15),
+                amount_cents=-amount,
+                memo=None,
+                cleared="cleared",
+                approved=True,
+            )
+        )
+
+
+async def test_category_drift_flags_upward_drift(db_session: AsyncSession, budget: Budget) -> None:
+    db_session.add(
+        Account(
+            id="a-1",
+            budget_id="b-1",
+            name="Checking",
+            type="checking",
+            balance_cents=0,
+            on_budget=True,
+            closed=False,
+        )
+    )
+    # First 9 months at $40, then trailing quarter (months 9-11 inclusive)
+    # bumped to $400. The generator's trailing window is months 8-10 (the
+    # three months before the current incomplete one at index 11), so the
+    # baseline averages ~$40 and the trailing averages ~$400 — well above
+    # the 15% / $50 thresholds.
+    spend = [4000] * 9 + [40000, 40000, 40000]
+    await _seed_category_drift_history(
+        db_session,
+        category_id="c-grocery",
+        category_name="Groceries",
+        monthly_outflows=spend,
+    )
+    await db_session.commit()
+
+    outputs = await CategoryDriftGenerator().run(db_session, get_settings(), "b-1")
+    assert len(outputs) == 1
+    payload = outputs[0].structured_data
+    assert payload["category_name"] == "Groceries"
+    assert payload["direction"] == "up"
+    assert payload["drift_pct"] > 0.5
+    assert payload["drift_cents_per_month"] > 30000
+
+
+async def test_category_drift_ignores_below_threshold(
+    db_session: AsyncSession, budget: Budget
+) -> None:
+    db_session.add(
+        Account(
+            id="a-1",
+            budget_id="b-1",
+            name="Checking",
+            type="checking",
+            balance_cents=0,
+            on_budget=True,
+            closed=False,
+        )
+    )
+    # Slight uptick: 10% in the trailing quarter — below the 15% gate.
+    spend = [10000] * 9 + [11000, 11000, 11000]
+    await _seed_category_drift_history(
+        db_session,
+        category_id="c-utility",
+        category_name="Utilities",
+        monthly_outflows=spend,
+    )
+    await db_session.commit()
+
+    outputs = await CategoryDriftGenerator().run(db_session, get_settings(), "b-1")
+    assert outputs == []
+
+
+async def test_category_drift_flags_downward_drift(
+    db_session: AsyncSession, budget: Budget
+) -> None:
+    db_session.add(
+        Account(
+            id="a-1",
+            budget_id="b-1",
+            name="Checking",
+            type="checking",
+            balance_cents=0,
+            on_budget=True,
+            closed=False,
+        )
+    )
+    spend = [50000] * 9 + [5000, 5000, 5000]
+    await _seed_category_drift_history(
+        db_session,
+        category_id="c-dining",
+        category_name="Eating Out",
+        monthly_outflows=spend,
+    )
+    await db_session.commit()
+
+    outputs = await CategoryDriftGenerator().run(db_session, get_settings(), "b-1")
+    assert len(outputs) == 1
+    assert outputs[0].structured_data["direction"] == "down"
+    assert outputs[0].structured_data["drift_cents_per_month"] < -30000

@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.db import async_session_maker
 from app.insights import InsightGenerator, execute_generator
 from app.insights.cashflow_forecast import CashflowForecastGenerator
+from app.insights.category_drift import CategoryDriftGenerator
 from app.insights.goal_trajectory import GoalTrajectoryGenerator
 from app.insights.spending_anomaly import SpendingAnomalyGenerator
 from app.insights.subscription_audit import SubscriptionAuditGenerator
@@ -47,6 +48,13 @@ _INSIGHT_JOBS: tuple[tuple[str, type[InsightGenerator], dict[str, object]], ...]
         "insights_goal_trajectory",
         GoalTrajectoryGenerator,
         {"hour": 3, "minute": 40},
+    ),
+    # Category drift is a slow signal (year-over-year quarterly compare);
+    # monthly cadence is plenty.
+    (
+        "insights_category_drift",
+        CategoryDriftGenerator,
+        {"day": 1, "hour": 3, "minute": 50},
     ),
 )
 
