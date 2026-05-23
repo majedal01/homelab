@@ -7,6 +7,7 @@ import { motion } from "motion/react";
 import { Sparkles, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { MOTION } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { InsightResponse } from "@/lib/api-types";
@@ -60,12 +61,23 @@ export function InsightCard({
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25, delay: Math.min(index, 8) * 0.04 }}
+      exit={{ opacity: 0, x: 80 }}
+      transition={{
+        duration: MOTION.d.base,
+        ease: MOTION.e.out as unknown as [number, number, number, number],
+        delay: Math.min(index, 8) * MOTION.stagger,
+      }}
+      layout
+      layoutId={`insight-card-${insight.id}`}
       className={cn("relative", pending && "opacity-50")}
     >
       <Link
         href={`/insights/${insight.id}`}
-        className="group block rounded-lg border bg-card p-5 transition-colors hover:border-foreground/30"
+        className={cn(
+          "group block rounded-lg border bg-card/80 backdrop-blur p-5 shadow-sm",
+          "transition-all duration-200",
+          "hover:-translate-y-0.5 hover:shadow-md hover:border-foreground/30",
+        )}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
