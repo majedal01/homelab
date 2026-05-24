@@ -36,9 +36,7 @@ class GoalTrajectoryGenerator(InsightGenerator):
     ) -> Sequence[GeneratedInsight]:
         today = date.today()
         categories = [
-            c
-            for c in snapshot.categories
-            if c.goal_target_cents is not None and not c.hidden
+            c for c in snapshot.categories if c.goal_target_cents is not None and not c.hidden
         ]
 
         outputs: list[GeneratedInsight] = []

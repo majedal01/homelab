@@ -98,9 +98,7 @@ def _transactions(amount_milli: int = -25_000) -> dict[str, Any]:
 
 
 def _route(path: str, payload: dict[str, Any]) -> None:
-    respx.get(f"{DEFAULT_BASE_URL}{path}").mock(
-        return_value=httpx.Response(200, json=payload)
-    )
+    respx.get(f"{DEFAULT_BASE_URL}{path}").mock(return_value=httpx.Response(200, json=payload))
 
 
 @respx.mock

@@ -129,8 +129,7 @@ async def _fetch_ynab_budgets(token: str) -> list[BudgetOption]:
         logger.info("ynab transport error: %s", type(e).__name__)
         raise _bad("ynab_unavailable", "Couldn't reach YNAB. Try again in a moment.", 502) from e
     return [
-        BudgetOption(id=b.id, name=b.name, last_modified_on=b.last_modified_on)
-        for b in budgets
+        BudgetOption(id=b.id, name=b.name, last_modified_on=b.last_modified_on) for b in budgets
     ]
 
 

@@ -275,8 +275,7 @@ async def fetch_snapshot(token: str, budget_id: str) -> YnabSnapshot:
         for c in categories
     ]
     snap_payees = [
-        SnapPayee(id=p.id, name=p.name, transfer_account_id=p.transfer_account_id)
-        for p in payees
+        SnapPayee(id=p.id, name=p.name, transfer_account_id=p.transfer_account_id) for p in payees
     ]
 
     known_category_ids = {c.id for c in snap_categories}

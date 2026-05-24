@@ -30,12 +30,8 @@ def patch_upstreams(monkeypatch: pytest.MonkeyPatch) -> None:
 
     async def fake_budgets(token: str) -> list[session_router.BudgetOption]:
         return [
-            session_router.BudgetOption(
-                id="b-1", name="Main", last_modified_on=datetime.now(UTC)
-            ),
-            session_router.BudgetOption(
-                id="b-2", name="Side", last_modified_on=datetime.now(UTC)
-            ),
+            session_router.BudgetOption(id="b-1", name="Main", last_modified_on=datetime.now(UTC)),
+            session_router.BudgetOption(id="b-2", name="Side", last_modified_on=datetime.now(UTC)),
         ]
 
     monkeypatch.setattr(session_router, "_ping_anthropic", fake_ping)

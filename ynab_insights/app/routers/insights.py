@@ -113,9 +113,7 @@ async def generate(
 
     insights_list = cast(list[Insight], session.insights)
     runs_list = list(session.runs)
-    by_key: dict[tuple[str, str], Insight] = {
-        (i.budget_id, i.dedup_key): i for i in insights_list
-    }
+    by_key: dict[tuple[str, str], Insight] = {(i.budget_id, i.dedup_key): i for i in insights_list}
 
     next_id = max((i.id for i in insights_list), default=0) + 1
     next_run_id = max((r.id for r in runs_list), default=0) + 1

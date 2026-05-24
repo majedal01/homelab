@@ -68,9 +68,7 @@ async def run_agent(
 ) -> AskResult:
     """One non-streaming Ask turn. Enforces the agent guardrails."""
     if len(question) > settings.agent_input_max_chars:
-        raise ValueError(
-            f"question too long ({len(question)} > {settings.agent_input_max_chars})"
-        )
+        raise ValueError(f"question too long ({len(question)} > {settings.agent_input_max_chars})")
 
     client = anthropic.AsyncAnthropic(api_key=anthropic_key.get_secret_value())
     tool_specs = [t.to_anthropic_spec() for t in TOOL_REGISTRY.values()]

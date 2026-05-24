@@ -78,9 +78,7 @@ async def _list_categories(snap: YnabSnapshot, _: NoInput) -> list[dict[str, Any
             "name": c.name,
             "hidden": c.hidden,
             "goal_target_dollars": (
-                _cents_to_dollars(c.goal_target_cents)
-                if c.goal_target_cents is not None
-                else None
+                _cents_to_dollars(c.goal_target_cents) if c.goal_target_cents is not None else None
             ),
             "goal_percentage_complete": c.goal_percentage_complete,
         }
@@ -124,9 +122,7 @@ async def _transactions(snap: YnabSnapshot, args: TransactionsInput) -> list[dic
                 "amount_dollars": _cents_to_dollars(t.amount_cents),
                 "payee_name": payee_name,
                 "category_name": (
-                    cats[t.category_id].name
-                    if t.category_id and t.category_id in cats
-                    else None
+                    cats[t.category_id].name if t.category_id and t.category_id in cats else None
                 ),
                 "memo": t.memo,
             }

@@ -105,9 +105,7 @@ def register_generator(cls: type[InsightGenerator]) -> type[InsightGenerator]:
     if not getattr(cls, "card_type", None):
         raise TypeError(f"{cls.__name__} must set `card_type` to register")
     if cls.card_type in _REGISTRY and _REGISTRY[cls.card_type] is not cls:
-        raise RuntimeError(
-            f"duplicate generator registration for card_type={cls.card_type!r}"
-        )
+        raise RuntimeError(f"duplicate generator registration for card_type={cls.card_type!r}")
     _REGISTRY[cls.card_type] = cls
     return cls
 

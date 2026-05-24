@@ -271,11 +271,7 @@ def transactions_in_range(
 
 def starting_balance_cents(snapshot: YnabSnapshot) -> int:
     """Sum of open on-budget account balances. The base for cashflow projections."""
-    return sum(
-        a.balance_cents
-        for a in snapshot.accounts
-        if a.on_budget and not a.closed
-    )
+    return sum(a.balance_cents for a in snapshot.accounts if a.on_budget and not a.closed)
 
 
 # --- helpers ----------------------------------------------------------------
