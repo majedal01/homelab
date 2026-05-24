@@ -5,7 +5,7 @@ import { ArrowLeft, MessageSquare } from "lucide-react";
 import { Aurora } from "@/components/brand/aurora";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, requireSession } from "@/lib/api";
 import type { InsightResponse } from "@/lib/api-types";
 import { SubscriptionAuditDetail } from "@/components/insights/details/subscription-audit-detail";
 import { SpendingAnomalyDetail } from "@/components/insights/details/spending-anomaly-detail";
@@ -13,7 +13,7 @@ import { CashflowForecastDetail } from "@/components/insights/details/cashflow-f
 import { GoalTrajectoryDetail } from "@/components/insights/details/goal-trajectory-detail";
 import { CategoryDriftDetail } from "@/components/insights/details/category-drift-detail";
 import { YearInMoneyDetail } from "@/components/insights/details/year-in-money-detail";
-import { DismissForm } from "@/app/insights/[id]/dismiss-form";
+import { DismissButton } from "@/components/insights/dismiss-button";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +67,7 @@ export default async function InsightDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireSession();
   const { id } = await params;
   const numericId = Number(id);
   if (!Number.isFinite(numericId)) {
@@ -85,44 +86,39 @@ export default async function InsightDetailPage({
     <>
       <Aurora variant="quiet" />
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <Button variant="ghost" size="sm" asChild className="-ml-2">
-            <Link href="/insights">
-              <ArrowLeft className="mr-2 h-3.5 w-3.5" /> Back to feed
-            </Link>
-          </Button>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
-              {CARD_TYPE_LABEL[insight.card_type]}
-            </Badge>
-            {insight.dismissed_at ? (
-              <Badge variant="outline" className="text-[10px]">
-                Dismissed
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-1">
+            <Button variant="ghost" size="sm" asChild className="-ml-2">
+              <Link href="/insights">
+                <ArrowLeft className="mr-2 h-3.5 w-3.5" /> Back to feed
+              </Link>
+            </Button>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+                {CARD_TYPE_LABEL[insight.card_type]}
               </Badge>
-            ) : null}
+            </div>
+            <h1 className="text-2xl font-semibold tracking-tight">{insight.title}</h1>
+            <p className="max-w-2xl text-sm text-muted-foreground">{insight.summary}</p>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">{insight.title}</h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">{insight.summary}</p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/ask?prefill=${encodeURIComponent(askPrompt)}`}>
+                <MessageSquare className="mr-2 h-3.5 w-3.5" /> Discuss in Ask
+              </Link>
+            </Button>
+            <DismissButton dedupKey={insight.dedup_key} />
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/ask?prefill=${encodeURIComponent(askPrompt)}`}>
-              <MessageSquare className="mr-2 h-3.5 w-3.5" /> Discuss in Ask
-            </Link>
-          </Button>
-          {insight.dismissed_at ? null : <DismissForm id={insight.id} />}
+
+        {renderBody(insight)}
+
+        <div className="border-t pt-4 text-xs text-muted-foreground">
+          Generated {insight.generated_at}
+          {insight.refreshed_at !== insight.generated_at
+            ? ` · refreshed ${insight.refreshed_at}`
+            : ""}
         </div>
-      </div>
-
-      {renderBody(insight)}
-
-      <div className="border-t pt-4 text-xs text-muted-foreground">
-        Generated {insight.generated_at}
-        {insight.refreshed_at !== insight.generated_at
-          ? ` · refreshed ${insight.refreshed_at}`
-          : ""}
-      </div>
       </div>
     </>
   );

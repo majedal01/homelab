@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
@@ -12,7 +11,7 @@ import { MOTION } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { InsightResponse } from "@/lib/api-types";
-import { dismissInsight, restoreInsight } from "@/app/insights/actions";
+import { dismiss as dismissLocal, restore as restoreLocal } from "@/lib/dismissals";
 import { SubscriptionAuditCard } from "@/components/insights/cards/subscription-audit-card";
 import { SpendingAnomalyCard } from "@/components/insights/cards/spending-anomaly-card";
 import { CashflowForecastCard } from "@/components/insights/cards/cashflow-forecast-card";
@@ -50,33 +49,31 @@ function CardBody({ insight }: { insight: InsightResponse }) {
 export function InsightCard({
   insight,
   index,
+  onDismissChange,
 }: {
   insight: InsightResponse;
   index: number;
+  /** Called after we mutate localStorage so the parent can re-filter. */
+  onDismissChange?: () => void;
 }) {
-  const router = useRouter();
-  const [hidden, setHidden] = React.useState(false);
-
   function onDismiss(e: React.MouseEvent): void {
     e.preventDefault();
     e.stopPropagation();
-    // Optimistic: hide locally first, then persist. Toast carries an
-    // Undo affordance backed by the /restore endpoint.
-    setHidden(true);
-    void dismissInsight(insight.id).then(() => router.refresh());
+    // Dismissals are local-only in v2.5. Write to localStorage; the
+    // parent feed re-filters via onDismissChange.
+    dismissLocal(insight.dedup_key);
+    onDismissChange?.();
     toast("Dismissed", {
       action: {
         label: "Undo",
         onClick: () => {
-          setHidden(false);
-          void restoreInsight(insight.id).then(() => router.refresh());
+          restoreLocal(insight.dedup_key);
+          onDismissChange?.();
         },
       },
       duration: 5000,
     });
   }
-
-  if (hidden) return null;
 
   return (
     <motion.div

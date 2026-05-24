@@ -1,64 +1,67 @@
 /**
- * Server-side fetch helper for calling FastAPI from React Server Components.
+ * Server-side fetch helper for the v2.5 backend.
  *
- * The browser never hits this code path directly; `apiFetch` is invoked from
- * RSC, which runs in the Next.js container and calls the backend over the
- * Compose-internal network at `http://app:8000`.
+ * RSC pages call FastAPI directly over the Compose-internal network at
+ * `http://app:8000`. The session cookie set by the browser arrives in
+ * the incoming Next request; we forward it upstream so FastAPI can
+ * resolve the session.
  *
- * The `BACKEND_URL` env var points at FastAPI:
- *   - prod/stage container: `http://app:8000`
- *   - local dev:            `http://localhost:8000`
+ * The browser never holds tokens. The `sid` cookie is HttpOnly + signed.
  */
 
-import { cookies } from "next/headers";
-import type { BudgetResponse } from "./api-types";
+import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
-/** Cookie name used by the budget switcher to persist user's selection. */
-export const BUDGET_COOKIE = "budget_id";
-
-/**
- * Returns the budget the user has selected via the switcher, falling back to
- * the first available budget. Returns null when the user has no budgets.
- *
- * Server-only: reads the request cookie store via next/headers. Pages call
- * this once and pass the id into all downstream fetches.
- */
-export async function getSelectedBudgetId(
-  budgets: BudgetResponse[],
-): Promise<string | null> {
-  if (!budgets.length) return null;
-  const fromCookie = (await cookies()).get(BUDGET_COOKIE)?.value;
-  if (fromCookie && budgets.some((b) => b.id === fromCookie)) {
-    return fromCookie;
+export class SessionExpiredError extends Error {
+  constructor() {
+    super("session_expired");
+    this.name = "SessionExpiredError";
   }
-  return budgets[0].id;
 }
 
 export interface ApiFetchOptions extends RequestInit {
-  /** When true, raise on non-2xx instead of returning the response. */
+  /** When true (default), throw on non-2xx. 401s always throw SessionExpiredError. */
   throwOnError?: boolean;
-  /**
-   * Next-specific cache hint. RSC default is to cache forever; we want
-   * dashboard reads to revalidate so a fresh sync shows up.
-   */
+  /** Next-specific cache hint; default 0 (no cache). */
   revalidate?: number;
 }
 
+/**
+ * Server-side fetch to the FastAPI backend with the request's session
+ * cookie attached. Use this from RSC and route handlers; the browser
+ * never sees BACKEND_URL.
+ *
+ * On 401 throws SessionExpiredError. Pages can catch + redirect, or use
+ * `requireSession()` for the common case.
+ */
 export async function apiFetch<T>(
   path: string,
   options: ApiFetchOptions = {},
 ): Promise<T> {
-  const { throwOnError = true, revalidate = 0, ...init } = options;
+  const { throwOnError = true, revalidate = 0, headers: extraHeaders, ...init } = options;
   const url = `${BACKEND_URL}${path.startsWith("/") ? path : `/${path}`}`;
+
+  const cookieStore = await cookies();
+  const cookieHeader = cookieStore
+    .getAll()
+    .map((c) => `${c.name}=${c.value}`)
+    .join("; ");
 
   const response = await fetch(url, {
     ...init,
     next: { revalidate },
-    headers: { "content-type": "application/json", ...(init.headers ?? {}) },
+    headers: {
+      "content-type": "application/json",
+      ...(cookieHeader ? { cookie: cookieHeader } : {}),
+      ...(extraHeaders ?? {}),
+    },
   });
 
+  if (response.status === 401) {
+    throw new SessionExpiredError();
+  }
   if (!response.ok && throwOnError) {
     const text = await response.text().catch(() => "");
     throw new Error(
@@ -68,8 +71,42 @@ export async function apiFetch<T>(
   return (await response.json()) as T;
 }
 
+/**
+ * RSC-friendly session guard. Calls /api/session; redirects to /welcome
+ * on 401. Returns the session metadata for pages that want to display
+ * it (active budget name, expiry).
+ */
+export async function requireSession(): Promise<SessionPublic> {
+  try {
+    return await apiFetch<SessionPublic>("/api/session");
+  } catch (err) {
+    if (err instanceof SessionExpiredError) {
+      // Preserve the path the user was trying to reach so we can return
+      // them after token entry. Done via header on the redirect; the
+      // welcome page reads `?next=`.
+      const hdrs = await headers();
+      const next = hdrs.get("x-pathname") ?? "/insights";
+      redirect(`/welcome?next=${encodeURIComponent(next)}`);
+    }
+    throw err;
+  }
+}
+
+/** Pydantic SessionPublic mirror. */
+export interface SessionPublic {
+  sid: string;
+  budget_id: string | null;
+  budget_name: string | null;
+  created_at: string;
+  last_active_at: string;
+  last_synced_at: string | null;
+  expires_at: string;
+}
+
 /** Build a query string from an object of optional params, dropping undefined/null. */
-export function qs(params: Record<string, string | number | boolean | null | undefined>): string {
+export function qs(
+  params: Record<string, string | number | boolean | null | undefined>,
+): string {
   const entries = Object.entries(params).filter(
     ([, v]) => v !== null && v !== undefined && v !== "",
   ) as [string, string | number | boolean][];

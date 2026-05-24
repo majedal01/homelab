@@ -1,27 +1,30 @@
 /**
  * Streaming proxy from the browser to FastAPI's /ask SSE endpoint.
  *
- * The browser never reaches FastAPI directly (no host port); this route
- * pipes the upstream body through without buffering so tokens arrive at
- * the client in real time. When the client aborts, the fetch to FastAPI
- * aborts too — FastAPI cancels its generator, which closes the Anthropic
+ * Forwards the session cookie so the backend can resolve the session.
+ * On client abort, propagates upstream so FastAPI cancels the Anthropic
  * stream and stops billing tokens.
  */
+
+import { NextRequest } from "next/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const body = await request.text();
+  const cookie = request.headers.get("cookie") ?? "";
 
   const upstream = await fetch(`${BACKEND_URL}/ask`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(cookie ? { cookie } : {}),
+    },
     body,
-    // Propagate the client's abort signal upstream.
     signal: request.signal,
-    // @ts-expect-error duplex is required for streaming requests in Node 18+
+    // @ts-expect-error duplex required for streaming requests in Node 18+
     duplex: "half",
   });
 
@@ -30,8 +33,7 @@ export async function POST(request: Request) {
     return new Response(text, {
       status: upstream.status,
       headers: {
-        "content-type":
-          upstream.headers.get("content-type") ?? "text/plain",
+        "content-type": upstream.headers.get("content-type") ?? "text/plain",
       },
     });
   }

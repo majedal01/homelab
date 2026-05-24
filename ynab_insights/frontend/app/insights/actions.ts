@@ -2,11 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { apiFetch } from "@/lib/api";
-import type {
-  GenerateResponse,
-  InsightResponse,
-  InsightRunResponse,
-} from "@/lib/api-types";
+import type { GenerateResponse, InsightRunResponse } from "@/lib/api-types";
 
 export interface RegenerationSummary {
   runs: InsightRunResponse[];
@@ -15,41 +11,15 @@ export interface RegenerationSummary {
 }
 
 /**
- * Server action: dismiss an insight and revalidate the feed and detail
- * routes so the user sees the card disappear on navigation.
+ * Server action: fire every registered generator against the session's
+ * snapshot. Looks up the resulting `InsightRun` rows so the caller can
+ * show created/updated counts.
  */
-export async function dismissInsight(id: number): Promise<void> {
-  await apiFetch<InsightResponse>(`/api/insights/${id}/dismiss`, {
+export async function regenerateAllInsights(): Promise<RegenerationSummary> {
+  const generate = await apiFetch<GenerateResponse>("/api/insights/generate", {
     method: "POST",
   });
-  revalidatePath("/insights");
-  revalidatePath(`/insights/${id}`);
-}
 
-/** Server action: undo a dismiss. Backs the toast's "Undo" button. */
-export async function restoreInsight(id: number): Promise<void> {
-  await apiFetch<InsightResponse>(`/api/insights/${id}/restore`, {
-    method: "POST",
-  });
-  revalidatePath("/insights");
-  revalidatePath(`/insights/${id}`);
-}
-
-/**
- * Server action: fire every registered generator. Looks up the resulting
- * `InsightRun` rows so the caller can show created/updated counts (otherwise
- * the user clicks the button and sees no change, since most invocations
- * refresh the same cards rather than producing new ones).
- */
-export async function regenerateAllInsights(
-  budgetId: string,
-): Promise<RegenerationSummary> {
-  const generate = await apiFetch<GenerateResponse>(
-    `/api/insights/generate?budget_id=${encodeURIComponent(budgetId)}`,
-    { method: "POST" },
-  );
-
-  // Pull the most recent runs and pick out the ones we just kicked off.
   const recent = await apiFetch<InsightRunResponse[]>(
     `/api/insights/runs?limit=${Math.max(generate.run_ids.length * 2, 10)}`,
   );

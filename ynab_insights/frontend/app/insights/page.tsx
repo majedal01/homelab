@@ -1,5 +1,5 @@
-import { apiFetch, getSelectedBudgetId, qs } from "@/lib/api";
-import type { BudgetResponse, InsightResponse } from "@/lib/api-types";
+import { apiFetch, requireSession } from "@/lib/api";
+import type { InsightResponse } from "@/lib/api-types";
 import { Aurora } from "@/components/brand/aurora";
 import { InsightFeed } from "@/components/insights/feed";
 import { RegenerateButton } from "@/components/insights/regenerate-button";
@@ -10,7 +10,6 @@ const PAGE_SIZE = 20;
 
 interface InsightsSearchParams {
   offset?: string;
-  include_dismissed?: string;
   card_type?: string;
 }
 
@@ -19,23 +18,18 @@ export default async function InsightsPage({
 }: {
   searchParams: Promise<InsightsSearchParams>;
 }) {
+  const session = await requireSession();
   const params = await searchParams;
   const offset = Math.max(0, parseInt(params.offset ?? "0", 10) || 0);
-  const includeDismissed = params.include_dismissed === "true";
 
-  const budgets = await apiFetch<BudgetResponse[]>("/budgets").catch(() => []);
-  const selected = await getSelectedBudgetId(budgets);
-
-  // Fetch one extra so we know whether a "Older" link should render.
-  const insights = await apiFetch<InsightResponse[]>(
-    `/api/insights${qs({
-      budget_id: selected ?? undefined,
-      card_type: params.card_type ?? undefined,
-      include_dismissed: includeDismissed,
-      limit: PAGE_SIZE + 1,
-      offset,
-    })}`,
-  ).catch(() => [] as InsightResponse[]);
+  let insights: InsightResponse[] = [];
+  if (session.budget_id) {
+    insights = await apiFetch<InsightResponse[]>(
+      `/api/insights?limit=${PAGE_SIZE + 1}&offset=${offset}${
+        params.card_type ? `&card_type=${encodeURIComponent(params.card_type)}` : ""
+      }`,
+    ).catch(() => [] as InsightResponse[]);
+  }
 
   const hasMore = insights.length > PAGE_SIZE;
   const visible = insights.slice(0, PAGE_SIZE);
@@ -44,17 +38,18 @@ export default async function InsightsPage({
     <>
       <Aurora variant="primary" />
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
-          <p className="text-sm text-muted-foreground">
-            What&apos;s worth your attention this week.
-          </p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
+            <p className="text-sm text-muted-foreground">
+              {session.budget_name
+                ? `What's worth your attention. ${session.budget_name}.`
+                : "Pick a budget to start."}
+            </p>
+          </div>
+          {session.budget_id && <RegenerateButton />}
         </div>
-        {selected ? <RegenerateButton budgetId={selected} /> : null}
-      </div>
-
-      <InsightFeed insights={visible} offset={offset} hasMore={hasMore} />
+        <InsightFeed insights={visible} offset={offset} hasMore={hasMore} />
       </div>
     </>
   );

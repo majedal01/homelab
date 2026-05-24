@@ -4,14 +4,12 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import {
-  BarChart3,
-  CreditCard,
-  FileSearch,
   Inbox,
-  ListTodo,
   MessageSquare,
   RefreshCw,
-  Wallet,
+  Settings,
+  TrendingDown,
+  TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,11 +20,12 @@ const CARD_TYPES: { value: string; label: string }[] = [
   { value: "spending_anomaly", label: "Spending anomalies" },
   { value: "cashflow_forecast", label: "Cashflow forecast" },
   { value: "goal_trajectory", label: "Goals" },
+  { value: "category_drift", label: "Category drift" },
+  { value: "year_in_money", label: "Year in money" },
 ];
 
 /**
- * Cmd/Ctrl+K palette. Mounted once globally. Holds its own open state so
- * the parent layout doesn't have to.
+ * Cmd/Ctrl+K palette. Mounted once globally. Holds its own open state.
  */
 export function CommandPalette() {
   const router = useRouter();
@@ -85,7 +84,10 @@ export function CommandPalette() {
               Nothing matches.
             </Command.Empty>
 
-            <Command.Group heading="Generate" className="text-xs text-muted-foreground [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2">
+            <Command.Group
+              heading="Generate"
+              className="text-xs text-muted-foreground [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2"
+            >
               <PaletteItem
                 icon={<RefreshCw className="h-3.5 w-3.5" />}
                 label="Regenerate all insights"
@@ -94,7 +96,10 @@ export function CommandPalette() {
               />
             </Command.Group>
 
-            <Command.Group heading="Jump to" className="text-xs text-muted-foreground [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2">
+            <Command.Group
+              heading="Jump to"
+              className="text-xs text-muted-foreground [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2"
+            >
               <PaletteItem
                 icon={<Inbox className="h-3.5 w-3.5" />}
                 label="Insights"
@@ -106,37 +111,28 @@ export function CommandPalette() {
                 onSelect={go("/ask")}
               />
               <PaletteItem
-                icon={<BarChart3 className="h-3.5 w-3.5" />}
-                label="Dashboard"
-                onSelect={go("/dashboard")}
-              />
-              <PaletteItem
-                icon={<Wallet className="h-3.5 w-3.5" />}
-                label="Accounts"
-                onSelect={go("/accounts")}
-              />
-              <PaletteItem
-                icon={<ListTodo className="h-3.5 w-3.5" />}
-                label="Categories"
-                onSelect={go("/categories")}
-              />
-              <PaletteItem
-                icon={<CreditCard className="h-3.5 w-3.5" />}
-                label="Transactions"
-                onSelect={go("/transactions")}
-              />
-              <PaletteItem
-                icon={<FileSearch className="h-3.5 w-3.5" />}
-                label="Reports"
-                onSelect={go("/reports")}
+                icon={<Settings className="h-3.5 w-3.5" />}
+                label="Settings"
+                onSelect={go("/settings")}
               />
             </Command.Group>
 
-            <Command.Group heading="Filter feed" className="text-xs text-muted-foreground [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2">
+            <Command.Group
+              heading="Filter feed"
+              className="text-xs text-muted-foreground [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2"
+            >
               {CARD_TYPES.map((c) => (
                 <PaletteItem
                   key={c.value}
-                  icon={<Inbox className="h-3.5 w-3.5" />}
+                  icon={
+                    c.value === "category_drift" ? (
+                      <TrendingUp className="h-3.5 w-3.5" />
+                    ) : c.value === "spending_anomaly" ? (
+                      <TrendingDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <Inbox className="h-3.5 w-3.5" />
+                    )
+                  }
                   label={`Show ${c.label} only`}
                   onSelect={go(`/insights?card_type=${c.value}`)}
                 />
