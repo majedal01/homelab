@@ -38,6 +38,23 @@ class Settings(BaseSettings):
     # generator jobs (manual `POST /api/insights/generate` still works).
     insights_generation_enabled: bool = True
 
+    # v2.5 multi-tenant session layer. Secret used to sign the session cookie.
+    # Tests autogenerate one; prod / stage MUST set a stable value via env so
+    # signed cookies survive container restarts (within the same release).
+    session_secret_key: str = "dev-only-do-not-use-in-prod"
+
+    # Rate limit defaults (per-session unless noted). Tunable from env.
+    rate_limit_session_create_per_hour: int = 5  # bucketed per IP
+    rate_limit_snapshot_per_hour: int = 10  # POST /api/session/budget + /refresh
+    rate_limit_generate_per_hour: int = 10
+    rate_limit_ask_per_hour: int = 20
+    rate_limit_reads_per_minute: int = 120
+
+    # Agent loop guardrails (v2.5).
+    agent_max_tool_calls: int = 20
+    agent_max_duration_seconds: int = 60
+    agent_input_max_chars: int = 1000
+
     @field_validator("ynab_token", "ynab_budget_id", "anthropic_api_key", mode="before")
     @classmethod
     def _blank_to_none(cls, value: object) -> object:

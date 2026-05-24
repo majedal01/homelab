@@ -24,6 +24,7 @@ from app.routers import (
     transactions,
 )
 from app.services.scheduler import build_scheduler
+from app.session import SessionMiddleware, get_session_store
 
 setup_logging(get_settings().app_env)
 
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="ynab-insights", lifespan=lifespan)
+app.add_middleware(SessionMiddleware, store=get_session_store())
 app.include_router(health.router)
 app.include_router(sync.router)
 app.include_router(budgets.router)

@@ -19,6 +19,8 @@ dependencies = [
     "tenacity>=8.2",
     "apscheduler>=3.10",
     "anthropic>=0.40",
+    "cachetools>=5.3",
+    "itsdangerous>=2.2",
 ]
 
 [project.optional-dependencies]
@@ -48,6 +50,14 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = "apscheduler.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "cachetools.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "itsdangerous.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
