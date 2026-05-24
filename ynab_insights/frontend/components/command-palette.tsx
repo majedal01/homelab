@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import {
+  Compass,
   Inbox,
   MessageSquare,
   RefreshCw,
@@ -104,6 +105,26 @@ export function CommandPalette() {
                 icon={<Inbox className="h-3.5 w-3.5" />}
                 label="Insights"
                 onSelect={go("/insights")}
+              />
+              <PaletteItem
+                icon={<Compass className="h-3.5 w-3.5" />}
+                label="Explore"
+                onSelect={go("/explore")}
+              />
+              <PaletteItem
+                icon={<Compass className="h-3.5 w-3.5" />}
+                label="Explore: Accounts"
+                onSelect={go("/explore?view=accounts")}
+              />
+              <PaletteItem
+                icon={<Compass className="h-3.5 w-3.5" />}
+                label="Explore: Categories"
+                onSelect={go("/explore?view=categories")}
+              />
+              <PaletteItem
+                icon={<Compass className="h-3.5 w-3.5" />}
+                label="Explore: Transactions"
+                onSelect={go("/explore?view=transactions")}
               />
               <PaletteItem
                 icon={<MessageSquare className="h-3.5 w-3.5" />}

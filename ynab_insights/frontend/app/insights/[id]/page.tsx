@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, MessageSquare } from "lucide-react";
+import { ArrowLeft, Compass, MessageSquare } from "lucide-react";
 
 import { Aurora } from "@/components/brand/aurora";
 import { Button } from "@/components/ui/button";
@@ -62,6 +62,44 @@ function buildAskPrompt(insight: InsightResponse): string {
   }
 }
 
+/**
+ * Build the deep-link from a card detail page into the matching /explore
+ * slice. Returns null when the card type doesn't have a useful raw-data
+ * view (e.g. cashflow forecast aggregates many categories at once).
+ */
+function buildExploreLink(insight: InsightResponse): { href: string; label: string } | null {
+  const data = insight.structured_data;
+  switch (data.card_type) {
+    case "subscription_audit":
+      return {
+        href: `/explore?view=transactions&payee_contains=${encodeURIComponent(data.payee_name)}`,
+        label: `Show all ${data.payee_name} charges`,
+      };
+    case "spending_anomaly":
+      return {
+        href: `/explore?view=transactions&category_id=${encodeURIComponent(data.category_id)}&date_from=${encodeURIComponent(data.week_start)}&date_to=${encodeURIComponent(data.week_end)}`,
+        label: `Open this week's ${data.category_name} transactions`,
+      };
+    case "category_drift":
+      return {
+        href: `/explore?view=transactions&category_id=${encodeURIComponent(data.category_id)}`,
+        label: `Show all ${data.category_name} transactions`,
+      };
+    case "goal_trajectory":
+      return {
+        href: `/explore?view=categories`,
+        label: "Open in Categories",
+      };
+    case "cashflow_forecast":
+      return null;
+    case "year_in_money":
+      return {
+        href: `/explore?view=transactions&date_from=${encodeURIComponent(data.period_start)}&date_to=${encodeURIComponent(data.period_end)}`,
+        label: `Browse transactions from ${data.period_label}`,
+      };
+  }
+}
+
 export default async function InsightDetailPage({
   params,
 }: {
@@ -81,6 +119,7 @@ export default async function InsightDetailPage({
   }
 
   const askPrompt = buildAskPrompt(insight);
+  const exploreLink = buildExploreLink(insight);
 
   return (
     <>
@@ -101,7 +140,14 @@ export default async function InsightDetailPage({
             <h1 className="text-2xl font-semibold tracking-tight">{insight.title}</h1>
             <p className="max-w-2xl text-sm text-muted-foreground">{insight.summary}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {exploreLink && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href={exploreLink.href}>
+                  <Compass className="mr-2 h-3.5 w-3.5" /> {exploreLink.label}
+                </Link>
+              </Button>
+            )}
             <Button variant="outline" size="sm" asChild>
               <Link href={`/ask?prefill=${encodeURIComponent(askPrompt)}`}>
                 <MessageSquare className="mr-2 h-3.5 w-3.5" /> Discuss in Ask

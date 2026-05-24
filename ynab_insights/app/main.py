@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from app import insights as _insights  # noqa: F401  side-effect: registers generators
 from app.config import get_settings
 from app.logging_config import setup_logging
-from app.routers import ask, health, insights
+from app.routers import ask, health, insights, snapshot
 from app.routers import session as session_router
 from app.session import RateLimitMiddleware, SessionMiddleware, get_session_store
 
@@ -22,4 +22,5 @@ app.add_middleware(SessionMiddleware, store=get_session_store())
 app.include_router(health.router)
 app.include_router(session_router.router)
 app.include_router(insights.router)
+app.include_router(snapshot.router)
 app.include_router(ask.router)

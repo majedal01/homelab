@@ -19,6 +19,7 @@ import { LogoMark } from "@/components/brand/logo";
 
 const NAV_ITEMS: { href: string; label: string }[] = [
   { href: "/insights", label: "Insights" },
+  { href: "/explore", label: "Explore" },
   { href: "/ask", label: "Ask" },
 ];
 

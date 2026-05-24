@@ -234,3 +234,74 @@ export interface InsightRunResponse {
 export interface GenerateResponse {
   run_ids: number[];
 }
+
+// --- Snapshot (v2.6) --------------------------------------------------------
+
+export interface AccountResponse {
+  id: string;
+  name: string;
+  type: string;
+  on_budget: boolean;
+  closed: boolean;
+  balance_cents: number;
+}
+
+export interface CategoryResponse {
+  id: string;
+  name: string;
+  hidden: boolean;
+  goal_type: string | null;
+  goal_target_cents: number | null;
+  goal_overall_left_cents: number | null;
+  goal_percentage_complete: number | null;
+  this_month_spend_cents: number;
+}
+
+export interface TransactionResponse {
+  id: string;
+  date: string;
+  amount_cents: number;
+  account_id: string;
+  account_name: string | null;
+  category_id: string | null;
+  category_name: string | null;
+  payee_id: string | null;
+  payee_name: string | null;
+  memo: string | null;
+}
+
+export interface CategoryNetResponse {
+  category_id: string | null;
+  category_name: string | null;
+  net_cents: number;
+}
+
+export interface PeriodSummaryResponse {
+  date_from: string;
+  date_to: string;
+  income_cents: number;
+  spending_cents: number;
+  net_income_cents: number;
+  transaction_count: number;
+  by_category: CategoryNetResponse[];
+}
+
+export interface MonthlyTrendPointResponse {
+  year: number;
+  month: number;
+  income_cents: number;
+  spending_cents: number;
+}
+
+export interface MonthlyTrendResponse {
+  points: MonthlyTrendPointResponse[];
+}
+
+export interface OverviewKPIs {
+  net_worth_cents: number;
+  this_month_income_cents: number;
+  this_month_spending_cents: number;
+  this_month_net_cents: number;
+  savings_rate: number | null;
+  transaction_count: number;
+}

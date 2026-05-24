@@ -274,6 +274,42 @@ def starting_balance_cents(snapshot: YnabSnapshot) -> int:
     return sum(a.balance_cents for a in snapshot.accounts if a.on_budget and not a.closed)
 
 
+@dataclass(frozen=True)
+class MonthlyTrendRow:
+    """One month of YNAB-style income vs spending. Both positive."""
+
+    year: int
+    month: int
+    income_cents: int
+    spending_cents: int
+
+
+def monthly_trend(snapshot: YnabSnapshot, months: int) -> list[MonthlyTrendRow]:
+    """Per-month income + spending for the trailing `months` calendar months
+    ending in the current month, oldest first. Same semantics as
+    `period_summary`, sliced per month."""
+    if months <= 0:
+        return []
+    out: list[MonthlyTrendRow] = []
+    for ms in _month_starts_back(date.today(), months):
+        me = date(ms.year, ms.month, monthrange(ms.year, ms.month)[1])
+        summary = period_summary(snapshot, ms, me)
+        out.append(
+            MonthlyTrendRow(
+                year=ms.year,
+                month=ms.month,
+                income_cents=summary.income_cents,
+                spending_cents=summary.spending_cents,
+            )
+        )
+    return out
+
+
+def net_worth_cents(snapshot: YnabSnapshot) -> int:
+    """Sum of every open account balance (on-budget plus tracking)."""
+    return sum(a.balance_cents for a in snapshot.accounts if not a.closed)
+
+
 # --- helpers ----------------------------------------------------------------
 
 
