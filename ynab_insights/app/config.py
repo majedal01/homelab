@@ -2,7 +2,7 @@ from functools import lru_cache
 from typing import Literal
 from urllib.parse import quote
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +37,17 @@ class Settings(BaseSettings):
     # Insights Feed (v2.4). When False, the scheduler skips all insight
     # generator jobs (manual `POST /api/insights/generate` still works).
     insights_generation_enabled: bool = True
+
+    @field_validator("ynab_token", "ynab_budget_id", "anthropic_api_key", mode="before")
+    @classmethod
+    def _blank_to_none(cls, value: object) -> object:
+        # docker compose's `${VAR:-}` substitution turns an unset host env var
+        # into an empty string in the container. pydantic-settings then reads
+        # "" instead of None, so `is None` guards downstream silently fail.
+        # Treat blank strings as missing so the Optional contract holds.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def _assemble_database_url(self) -> "Settings":
