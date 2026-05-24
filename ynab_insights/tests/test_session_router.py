@@ -139,8 +139,15 @@ async def test_get_session_returns_no_tokens(client: AsyncClient) -> None:
 async def test_select_budget_persists_choice(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Bypass the real YNAB refetch in /budget by mocking YNABClient.list_budgets.
+    # The /budget endpoint calls two things that hit YNAB: a re-list of
+    # budgets to verify the choice is still valid, and fetch_snapshot to
+    # pull the full snapshot. Patch both. The list_budgets path goes
+    # through `session_router.YNABClient`; the snapshot path goes through
+    # the function imported into the session router as `fetch_snapshot`.
+    from datetime import UTC, datetime
+
     from app.routers import session as session_router
+    from app.snapshot.models import YnabSnapshot
 
     class FakeBudget:
         def __init__(self, bid: str, name: str) -> None:
@@ -160,7 +167,20 @@ async def test_select_budget_persists_choice(
         async def list_budgets(self) -> list[FakeBudget]:
             return [FakeBudget("b-1", "Main"), FakeBudget("b-2", "Side")]
 
+    async def fake_fetch_snapshot(token: str, budget_id: str) -> YnabSnapshot:
+        return YnabSnapshot(
+            budget_id=budget_id,
+            budget_name="Side" if budget_id == "b-2" else "Main",
+            currency_iso="USD",
+            fetched_at=datetime.now(UTC),
+            accounts=[],
+            categories=[],
+            payees=[],
+            transactions=[],
+        )
+
     monkeypatch.setattr(session_router, "YNABClient", FakeClient)
+    monkeypatch.setattr(session_router, "fetch_snapshot", fake_fetch_snapshot)
 
     await client.post(
         "/api/session",
