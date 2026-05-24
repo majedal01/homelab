@@ -14,7 +14,7 @@ import pytest_asyncio
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 
-from app.session.store import COOKIE_NAME, get_session_store
+from app.session.store import COOKIE_NAME
 
 VALID_YNAB = "a" * 64
 VALID_KEY = "sk-ant-" + "a" * 32
@@ -40,8 +40,15 @@ def patch_upstreams(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest_asyncio.fixture
 async def client() -> AsyncIterator[AsyncClient]:
-    # Fresh store per test so sessions don't bleed between tests.
-    get_session_store.cache_clear()
+    # Reuse the lru_cache'd SessionStore singleton across tests. Calling
+    # `get_session_store.cache_clear()` here would create a NEW store on
+    # the next router request, but SessionMiddleware was constructed at
+    # module-import time with a reference to the ORIGINAL store. The two
+    # would diverge: POST /api/session would store the session in the
+    # new store, the middleware would look up cookies in the old one,
+    # and every subsequent request 401s. Test isolation comes from
+    # using a fresh AsyncClient per test (cookies don't leak) and from
+    # the random UUID4 sids each session gets.
     from app.main import app
 
     async with LifespanManager(app):
@@ -50,7 +57,6 @@ async def client() -> AsyncIterator[AsyncClient]:
             base_url="http://test",
         ) as ac:
             yield ac
-    get_session_store.cache_clear()
 
 
 async def test_create_session_happy_path(client: AsyncClient) -> None:

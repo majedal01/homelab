@@ -5,8 +5,18 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import FastAPI, Request
+from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 
+# Module-level imports of the FastAPI symbols used by the middleware tests
+# below. `from __future__ import annotations` turns parameter types into
+# strings, so FastAPI resolves them via `get_type_hints(func, globalns)`.
+# That resolver only sees the function's __globals__; if `Request` or
+# `CurrentSessionDep` were imported inside the test function, get_type_hints
+# would NameError, and FastAPI would silently fall back to treating the
+# parameter as a Pydantic body and return 422.
+from app.session.middleware import CurrentSessionDep, SessionMiddleware
 from app.session.models import UserSession
 from app.session.store import SessionStore, new_sid
 
@@ -121,11 +131,6 @@ def test_user_session_redacts_tokens_in_repr() -> None:
 @pytest.mark.asyncio
 async def test_middleware_resolves_signed_cookie_to_session() -> None:
     """Round-trip: middleware should attach the session to request.state."""
-    from fastapi import FastAPI, Request
-    from httpx import ASGITransport, AsyncClient
-
-    from app.session.middleware import SessionMiddleware
-
     store = SessionStore(secret_key="test")
     s = _make_session()
     store.create(s)
@@ -150,11 +155,6 @@ async def test_middleware_resolves_signed_cookie_to_session() -> None:
 
 @pytest.mark.asyncio
 async def test_middleware_no_cookie_leaves_session_none() -> None:
-    from fastapi import FastAPI, Request
-    from httpx import ASGITransport, AsyncClient
-
-    from app.session.middleware import SessionMiddleware
-
     store = SessionStore(secret_key="test")
     app = FastAPI()
     app.add_middleware(SessionMiddleware, store=store)
@@ -174,12 +174,6 @@ async def test_middleware_no_cookie_leaves_session_none() -> None:
 
 @pytest.mark.asyncio
 async def test_current_session_dep_401s_without_cookie() -> None:
-    from fastapi import FastAPI
-    from httpx import ASGITransport, AsyncClient
-
-    from app.session.middleware import CurrentSessionDep, SessionMiddleware
-    from app.session.models import UserSession
-
     store = SessionStore(secret_key="test")
     app = FastAPI()
     app.add_middleware(SessionMiddleware, store=store)
