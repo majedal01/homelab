@@ -23,6 +23,9 @@ from app.routers import (
     sync,
     transactions,
 )
+from app.routers import (
+    session as session_router,
+)
 from app.services.scheduler import build_scheduler
 from app.session import SessionMiddleware, get_session_store
 
@@ -69,3 +72,4 @@ app.include_router(suggestions.router)
 app.include_router(insights.router)
 app.include_router(reports.router)
 app.include_router(metrics.router)
+app.include_router(session_router.router)
