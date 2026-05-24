@@ -8,18 +8,14 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { regenerateAllInsights } from "@/app/insights/actions";
 
-export function RegenerateButton({
-  budgetId,
-}: {
-  budgetId: string;
-}) {
+export function RegenerateButton() {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
 
   function onClick(): void {
     startTransition(async () => {
       try {
-        const summary = await regenerateAllInsights(budgetId);
+        const summary = await regenerateAllInsights();
         const errored = summary.runs.filter((r) => r.status === "error");
         const description =
           errored.length > 0
@@ -33,10 +29,6 @@ export function RegenerateButton({
         } else {
           toast("Regenerated", { description });
         }
-
-        // revalidatePath alone marks the route stale but doesn't re-render
-        // the page the user is sitting on. router.refresh() re-fetches the
-        // RSC tree so any new/updated cards appear without a manual reload.
         router.refresh();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

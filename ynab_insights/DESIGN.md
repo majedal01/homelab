@@ -1,107 +1,139 @@
-# YNAB Insights design notes
+# YNAB Insights design notes (v2.5)
 
-Architectural choices that span backend, frontend, and infra. Per-phase scope and rationale lives in merged PR descriptions; this file is the load-bearing reference.
+Architectural choices that span backend, frontend, and infra. Per-phase
+scope lives in merged PR descriptions; this file is the load-bearing
+reference. The deep planning rationale (session model, in-memory data
+layer, dismissal pattern, rate limits, agent guardrails, validation
+flow) lives in [`../docs/ynab-insights.md`](../docs/ynab-insights.md).
+
+## What changed in v2.5
+
+The app went from single-user with Postgres + scheduler to multi-tenant
+zero-persistence. No database. No background jobs. Users bring their own
+YNAB and Anthropic keys; the server holds them in a TTL-evicted in-memory
+cache for at most four hours. Restart wipes everything.
 
 ## Architecture
 
 ```
-browser -> :8001 / :8002 -> frontend container (Next.js 15)
-                                |
-                                +-- /api/ask  -> route handler ----+
-                                                                    \
-                                +-- RSC server-side fetch ---------> http://app:8000 (FastAPI)
-                                                                    /
-                                                            app container
+browser  -->  :8001 / :8002  -->  frontend container (Next.js 15)
+                                            |
+                                            +-- /api/*  -> proxy route handler -+
+                                                                                 \
+                                            +-- RSC server-side fetch ----------> http://app:8000 (FastAPI)
+                                                                                 /
+                                                                         app container (in-memory only)
 ```
 
-Browser only ever sees Next.js. FastAPI is reachable only over the Compose-internal network; no host port. The single exception is `/api/ask`, a Next route handler that proxies SSE through to FastAPI so the client can show streaming state without CORS.
+Browser only sees Next.js. FastAPI has no host port; the only reachable
+ingress is via the catch-all `/api/[...path]` proxy in Next, plus
+`/api/ask` which has its own streaming-aware handler. Both proxies forward
+the signed `sid` cookie up and Set-Cookie back down.
 
-Stage and prod run as two isolated Compose stacks on the same VM, each with its own Postgres volume and host port (8001, 8002). See `docs/deployment.md`.
+Stage and prod are two Compose stacks on the same VM at ports 8001 and
+8002. Deployment in [`../docs/deployment.md`](../docs/deployment.md).
 
-## Data model
+## Session model
 
-Two tables drive the Insights Feed: `Insight` (what the user sees) and `InsightRun` (observability).
+One `UserSession` per signed-in user, held in a `cachetools.TTLCache` keyed
+by a UUID4 `sid`. The `sid` lives in a signed (itsdangerous) HttpOnly +
+Secure + SameSite=Strict cookie. Idle TTL 1h; absolute cap 4h.
 
 ```python
-class Insight(Base):
-    id: int                       # serial
-    budget_id: str (FK)
-    card_type: str                # discriminator
-    dedup_key: str                # unique with budget_id
-    title: str
-    summary: str
-    structured_data: JSONB        # typed payload, varies by card_type
-    generated_at: datetime
-    refreshed_at: datetime
-    dismissed_at: datetime | None # null = visible in feed
-    llm_enhanced: bool            # observability
-
-class InsightRun(Base):
-    id: int                       # serial
-    card_type: str
-    started_at: datetime
-    finished_at: datetime | None
-    status: str                   # 'running' | 'ok' | 'error'
-    duration_ms: int | None
-    insights_created: int
-    insights_updated: int
-    error: str | None
+class UserSession(BaseModel):
+    sid: str
+    ynab_token: SecretStr          # never serialized
+    anthropic_key: SecretStr       # never serialized
+    budget_id: str | None
+    budget_name: str | None
+    snapshot: YnabSnapshot | None
+    insights: list[Insight]        # in-memory
+    runs: list[RunRecord]          # in-memory
+    created_at, last_active_at, last_synced_at: datetime
 ```
 
-Indexes:
+`cachetools.TTLCache(maxsize=500, ttl=3600)` caps memory at roughly
+5-10 MB per session. Single uvicorn worker; horizontal scaling would
+need Redis.
 
-- `(budget_id, dismissed_at, refreshed_at DESC)` on `Insight` for the feed query.
-- Unique `(budget_id, dedup_key)` on `Insight` for idempotent upsert.
-- `(card_type, started_at DESC)` on `InsightRun` for the runs page.
+## In-memory data layer
 
-`Insight.structured_data` is JSONB on Postgres, TEXT-with-JSON on SQLite. SQLAlchemy's `JSON` type maps to both. The payload is typed via a Pydantic discriminated union (see "Schemas") so the frontend gets a clean TypeScript discriminated union via OpenAPI.
+`app/snapshot/models.py` defines the shape of one budget's data
+(`YnabSnapshot` with accounts, categories, payees, transactions).
+`app/snapshot/queries.py` holds pure-Python aggregations that replace
+the deleted SQLAlchemy queries:
+
+- `spending_by_category(snapshot, start, end)` -> list of category
+  spend, most-negative first
+- `period_summary(snapshot, start, end)` -> YNAB-style Income vs
+  Expense rollup
+- `category_monthly_history(snapshot, months)` -> per-category monthly
+  net series
+- `transactions_in_range(snapshot, df, dt)` -> ordered slice
+- `starting_balance_cents(snapshot)` -> sum of open on-budget accounts
+
+Semantics match the deleted SQL versions: positives in null-category
+or RTA are income; everything categorized (except RTA) is spending;
+transfers between two on-budget accounts are excluded; closed accounts
+stay in historical aggregates.
+
+A year of transactions (~3-8k rows) aggregates in single-digit
+milliseconds; no indexing needed.
 
 ## Generator pattern
 
-Each card type is one Python class subclassing `InsightGenerator`. Importing the module is enough to register it. Adding a new card type is a single file plus a side-effect import in `app/insights/__init__.py`.
+Each card type is one class subclassing `InsightGenerator`. Importing
+the module registers it. Adding a new card type is a single file plus
+a side-effect import in `app/insights/__init__.py`.
 
 ```python
 class InsightGenerator(ABC):
-    card_type: ClassVar[str]            # discriminator, e.g. "subscription_audit"
-    cadence: ClassVar[Cadence]          # scheduling hint
+    card_type: ClassVar[str]
+    cadence: ClassVar[str]  # informational; v2.5 generates on demand
 
     @abstractmethod
-    async def run(self, session, settings, budget_id) -> Sequence[GeneratedInsight]: ...
+    async def run(
+        self,
+        snapshot: YnabSnapshot,
+        anthropic_key: SecretStr | None,
+    ) -> Sequence[GeneratedInsight]: ...
 ```
 
-`GeneratedInsight` is a small dataclass: `dedup_key`, `title`, `summary`, `structured_data`, `llm_enhanced`. Generators are side-effect-free; the orchestrator does all writes.
+`GeneratedInsight` is a small dataclass: `dedup_key`, `title`, `summary`,
+`structured_data`, `llm_enhanced`. Generators are side-effect-free; the
+orchestrator (`execute_generator`) owns the writes.
 
-The orchestrator (`app.insights.base.execute_generator`) is the only path that writes to `insights` or `insight_runs`:
+Orchestrator contract:
 
-1. Open an `InsightRun` row with `status='running'`, capture `started_at`.
-2. Call `generator.run(...)`. For each `GeneratedInsight`, upsert by `(budget_id, dedup_key)`. New rows insert; existing rows update content in place (refreshed evidence, user's dismiss state preserved).
-3. Close the run with terminal status, duration, counts, and any caught error.
+1. Receive `(generator_cls, snapshot, anthropic_key, next_id,
+   next_run_id, existing)` where `existing` is a `(budget_id,
+   dedup_key) -> Insight` map for upsert.
+2. Call `generator.run(...)`. For each output, either insert with a
+   fresh id or update the matching existing row in place (refreshed
+   evidence, same id).
+3. Return `(RunOutcome, updated_insights, RunRecord)`.
 
-Exceptions are caught so one bad generator can't crash the scheduler or the on-demand endpoint. Generators run via APScheduler on their declared cadence, or on demand via `POST /api/insights/generate`.
+The `/api/insights/generate` router merges the returned insights back
+into `session.insights` and appends the run to `session.runs`.
+
+Exceptions are caught so one bad generator can't crash the endpoint.
 
 ## LLM degradation contract
 
-Generators do deterministic Python for detection. The LLM is optional, runs after detection succeeds, and can rewrite `title` and `summary` into warmer prose. Three guarantees:
+Generators do deterministic Python for detection. The LLM is optional,
+runs after detection, can rewrite `title` and `summary`. Three
+guarantees:
 
-- `ANTHROPIC_API_KEY` unset (or blank): generators use deterministic fallback copy. Card still renders.
-- LLM call times out (5s) or raises: log, fall back to deterministic copy. Run records `status='ok'`.
-- LLM payload includes only the structured payload. No raw memos, no unrelated transactions.
+- `anthropic_key` is `None` or whitespace-only: fallback copy. Card
+  still renders.
+- LLM call times out (5s) or raises: fallback. Run records `status='ok'`.
+- LLM payload includes only the structured payload. No raw memos.
 
 ## Schemas
 
 Discriminated union over the typed per-card payloads:
 
 ```python
-class SubscriptionAuditData(BaseModel):
-    card_type: Literal["subscription_audit"]
-    payee_name: str
-    cadence: Literal["weekly", "monthly", "quarterly", "yearly"]
-    monthly_cost_cents: int
-    annual_cost_cents: int
-    occurrences: list[TransactionRef]
-
-# ...one BaseModel per card_type...
-
 InsightStructuredData = Annotated[
     SubscriptionAuditData | SpendingAnomalyData | CashflowForecastData
         | GoalTrajectoryData | CategoryDriftData | YearInMoneyData,
@@ -109,73 +141,101 @@ InsightStructuredData = Annotated[
 ]
 ```
 
-Picked over per-type validators because it gives OpenAPI a `oneOf` with the discriminator hint, which `openapi-typescript` turns into a clean TS discriminated union the frontend switches on without casts.
+OpenAPI emits `oneOf` with the discriminator hint; the frontend's
+hand-maintained `lib/api-types.ts` mirrors the same union for clean TS
+discriminated-union pattern matching.
 
 ## API surface
 
-All under `/api/insights`:
+Session lifecycle:
 
-- `GET    /api/insights?budget_id=&card_type=&include_dismissed=false&limit=20&offset=0` - feed query, newest first. Offset pagination; bounded volume so keyset isn't worth the complexity yet.
-- `GET    /api/insights/{id}` - full payload with referenced transactions resolved server-side (no N+1 on the detail view).
-- `POST   /api/insights/{id}/dismiss` - sets `dismissed_at`. Idempotent.
-- `POST   /api/insights/{id}/restore` - clears `dismissed_at`. Backs the undo-toast on optimistic dismiss.
-- `POST   /api/insights/generate?card_type=&budget_id=` - fire one generator or all. Returns the new `InsightRun` IDs.
-- `GET    /api/insights/runs?card_type=&limit=50` - run observability.
+- `POST   /api/session`         - validate tokens + return budget list,
+                                   set signed cookie
+- `POST   /api/session/budget`  - pick a budget, fetch its snapshot
+- `GET    /api/session`         - metadata only (no tokens, no snapshot)
+- `POST   /api/session/refresh` - re-fetch snapshot for active budget
+- `DELETE /api/session`         - evict + clear cookie
+
+Insights:
+
+- `GET    /api/insights?card_type=&limit=20&offset=0`
+- `GET    /api/insights/{id}`
+- `POST   /api/insights/generate?card_type=` - run one or all
+- `GET    /api/insights/runs?card_type=&limit=50`
+
+Dismiss/restore endpoints are gone; dismissals live in browser
+localStorage keyed by `dedup_key`.
+
+Agent:
+
+- `POST   /ask` - SSE; `{token, tool_use, tool_result, done, error}`.
 
 ## Card types
 
-Six generators ship today. Each has deterministic detection, optional LLM enhancement, unit tests, a card component, and a detail route.
+Six generators ship today, identical heuristics to v2.4:
 
-**Subscription Audit** (`subscription_audit`, weekly). Cluster recurring charges over the last 90 days by `(payee_id, amount_cents)`. Flag a cluster as a subscription when there are at least 3 occurrences inside a canonical-cadence tolerance (monthly 28-32d, weekly 6-8d, quarterly 85-95d, yearly 360-370d). Card highlights monthly cost; detail view shows all occurrences. Dedup key `subscription:{payee_id}:{amount_cents}:{cadence}`.
+- **Subscription Audit** (weekly): cluster recurring same-payee +
+  same-amount charges over 90 days, classify by interval band.
+- **Spending Anomaly** (weekly): z-score the current week against the
+  12-week baseline per category, floor at $25 deviation.
+- **Cashflow Forecast** (daily): mean daily net over the last 90 days,
+  projected 30/60/90 against current open on-budget balance.
+- **Goal Trajectory** (daily): per-goal projection from YNAB's
+  `goal_months_to_budget` + `goal_overall_left`.
+- **Category Drift** (monthly): trailing-quarter vs prior-three-quarters
+  per-category, +/-15% pct and $50/mo floor.
+- **Year in Money** (gates on Jan 1 / Apr 1 / Jul 1 / Oct 1): annual or
+  quarterly retrospective; LLM writes the narrative, deterministic
+  fallback paragraph.
 
-**Spending Anomaly** (`spending_anomaly`, weekly). For each spending category, take outflow per week across the trailing 13 weeks. Flag when `|z_score| >= 2.0` against the 12-week baseline AND absolute deviation is at least $25 (so a category that normally spends nothing doesn't fire on a single $5 charge). Dedup key `anomaly:{category_id}:{iso_year_week}`.
+Heuristic detail and dedup keys live in
+[`../docs/ynab-insights.md`](../docs/ynab-insights.md).
 
-**Cashflow Forecast** (`cashflow_forecast`, daily). Mean daily net cashflow over the last 90 days, projected forward 90 days against current open on-budget balance. Card shows projected balance at +30/+60/+90. Detail view exposes top 5 categories with monthly averages so a what-if slider runs client-side. Dedup key `forecast:{budget_id}:{iso_year_week}` (refreshes weekly even though it runs daily).
+## Rate limits + guardrails
 
-**Goal Trajectory** (`goal_trajectory`, daily). For each Category with `goal_target_cents` set and `< 100%` complete: if the goal has a target date, project on-track vs behind via YNAB's `goal_months_to_budget`; if it's a target-balance goal, project completion date from current monthly contribution. Dedup key `goal:{category_id}:{iso_year_month}`.
+Per-session token-bucket middleware (`app/session/rate_limit.py`):
 
-**Category Drift** (`category_drift`, monthly). For each on-budget expense category, compare the trailing quarter's monthly average to the prior three quarters' average. Flag when `abs(drift_pct) >= 0.15 AND abs(drift_dollars) >= $50`. Both directions surface (upward drift = overspend; downward = freed up). Dedup key `drift:{category_id}:{year_month}`.
-
-**Year in Money** (`year_in_money`, daily, but only emits on Jan 1 / Apr 1 / Jul 1 / Oct 1). Annual or quarterly retrospective. Python assembles the deterministic stats (income, spending, savings rate, top categories, top payees, biggest single transaction, savings-rate trend, largest category swing). The LLM writes the narrative; on failure the deterministic narrative ships. Dedup key `year_in_money:{budget_id}:{period_label}`.
-
-## Scheduling
-
-APScheduler runs alongside the existing sync job. Each generator has its own job; all are `coalesce=True, max_instances=1` so a slow run doesn't pile up. Default times follow the 30-minute sync so generators run against fresh data.
-
-| Job | Cadence | Default time |
+| Endpoint group | Limit | Bucket |
 | --- | --- | --- |
-| `insights_subscription_audit` | weekly | Mon 03:10 UTC |
-| `insights_spending_anomaly`   | weekly | Mon 03:20 UTC |
-| `insights_cashflow_forecast`  | daily  | 03:30 UTC |
-| `insights_goal_trajectory`    | daily  | 03:40 UTC |
-| `insights_category_drift`     | monthly | 1st 03:50 UTC |
-| `insights_year_in_money`      | daily  | 04:00 UTC (gated on the period-start dates above) |
+| `POST /api/session` | 5/hr | IP |
+| `POST /api/session/budget` + `/refresh` | 10/hr | session |
+| `POST /api/insights/generate` | 10/hr | session |
+| `POST /ask` | 20/hr | session |
+| `GET /api/*` reads | 120/min | session |
 
-Setting `INSIGHTS_GENERATION_ENABLED=false` skips the cron jobs entirely; `POST /api/insights/generate` still works.
+429 body: `{"error":"rate_limited","scope":...,"retry_after_seconds":N}`.
 
-## Ask agent
+Agent loop guardrails (constants in `app/config.py`):
 
-`POST /ask` streams Server-Sent Events. Named events emitted in order:
+- 20 tool calls max
+- 60s wall-clock max (`asyncio.wait_for`)
+- 1000 char question max (Pydantic + router-level)
 
-- `event: token` - incremental answer chunks.
-- `event: tool_use` - `{id, tool, input}` once the tool_use block finishes streaming.
-- `event: tool_result` - `{id, output, is_error}` after the server runs the tool.
-- `event: done` - `{turns_used, stop_reason}`.
-- `event: error` - `{message}` on fatal mid-stream failure.
-
-SSE over chunked HTTP or WebSocket: named events map cleanly to the three render concerns, the flow is one-way, and Next.js's route proxy replays it without buffering.
-
-Cancellation: client aborts the fetch; FastAPI's async generator gets `CancelledError`, propagates it into Anthropic's streaming context so the SDK closes upstream and we stop being billed for unused tokens.
-
-Conversation state is client-side only. Each request carries the full prior turns; backend has no session storage. Persisted to `sessionStorage` so refreshes survive but tab close clears it.
+Worst case per session per hour: 20 asks * 20 tool calls * ~3k tokens
+~ $2 at Haiku rates.
 
 ## Frontend conventions
 
-- TypeScript strict. Response types generated from FastAPI's OpenAPI via `openapi-typescript` into `frontend/lib/api-types.ts`. CI fails on drift.
-- Read paths use RSC + server-side fetch directly to `http://app:8000`. No TanStack Query / SWR; pages are read-heavy and URL search params hold filter state.
-- shadcn/ui (slate) + Tailwind + Tremor for charts + Framer Motion. Motion tokens centralized in `frontend/lib/motion.ts`.
-- Dark mode is class-strategy on `<html>`, persisted to `localStorage`, defaults to `prefers-color-scheme`.
+- TypeScript strict. Types in `lib/api-types.ts` mirror Pydantic
+  responses by hand; CI guards drift via `next build` typecheck.
+- RSC server-side fetch forwards the request's `sid` cookie to FastAPI.
+  Browser calls hit `/api/*` which proxies to FastAPI internally.
+- Onboarding centered card with the aurora is the brand surface.
+  Tailwind + shadcn/ui + Tremor + Framer Motion as in v2.4.
+- Dismissed insights live in `localStorage` keyed by `dedup_key`;
+  the feed hydrates and filters at render time.
+- 401 on a protected route surfaces as `SessionExpiredError` from
+  `apiFetch` and triggers a `next/navigation.redirect()` to
+  `/welcome?next=<path>`.
 
 ## Deployment
 
-Branch-to-env: `main` auto-deploys to stage; prod redeploys on manual `workflow_dispatch`. Both build versioned Docker images, push to ghcr.io, scp the compose file to the VM over Tailscale, run `docker compose pull && up -d`, smoke-check `/health`. Full design in [`../docs/deployment.md`](../docs/deployment.md).
+Branch-to-env: `main` auto-deploys stage; prod redeploys on manual
+`workflow_dispatch`. Builds two images (backend + frontend), pushes to
+ghcr.io, scp the compose file to the VM over Tailscale, runs
+`docker compose pull && up -d`, smoke-checks `/health`.
+
+The only required env var per stack is `SESSION_SECRET_KEY` (used to
+sign cookies). No database credentials, no provider tokens.
+
+Full design in [`../docs/deployment.md`](../docs/deployment.md).

@@ -1,18 +1,17 @@
 # YNAB Insights
 
-An AI financial coach that lives alongside YNAB. Pulls your YNAB data into a local Postgres, then surfaces a feed of forward-looking cards: recurring subscriptions, week-over-week spending anomalies, 90-day cashflow forecasts, goal trajectories, year-over-year category drift, and quarterly/annual retrospectives. A Claude-backed agent (`Ask`) answers follow-up questions with a streaming tool-use loop against the same database.
+An AI financial coach that lives alongside YNAB. Bring your own YNAB token and Anthropic key. Sign in, pick a budget, get a feed of forward-looking cards: recurring subscriptions, weekly spending anomalies, 90-day cashflow forecasts, goal trajectories, year-over-year category drift, and quarterly/annual retrospectives. A Claude-backed agent (`Ask`) answers follow-up questions with a streaming tool-use loop against the same in-memory snapshot.
 
-Self-hosted, single-user, exposed only over Tailscale.
+**Zero persistence.** Tokens and your YNAB data live in server memory only. No database. Restart wipes everything. One-hour idle / four-hour absolute session cap.
 
 ## Stack
 
-FastAPI + SQLAlchemy + Postgres on the backend. Next.js 15 (App Router) + Tailwind + shadcn/ui + Tremor + Framer Motion on the frontend. Claude (`claude-haiku-4-5`) for tool-use and the optional narrative pass on each card. APScheduler runs sync and insight generators out of band.
+FastAPI + Pydantic on the backend, no database. `cachetools.TTLCache` holds sessions; `itsdangerous` signs the cookie. Next.js 15 (App Router) + Tailwind + shadcn/ui + Tremor + Framer Motion on the frontend. Claude (`claude-haiku-4-5`) for tool-use and optional narrative copy on each card.
 
 ## Local development
 
 ```bash
-cp infra/compose/dev/.env.example infra/compose/dev/.env
-# Fill in optional YNAB_TOKEN, ANTHROPIC_API_KEY.
+cp infra/compose/dev/.env.example infra/compose/dev/.env  # first time only
 docker compose -f infra/compose/dev/docker-compose.yml up
 ```
 
@@ -29,9 +28,12 @@ pytest
 ## Architecture
 
 - `app/`: FastAPI service.
-- `app/insights/`: generator framework plus one module per card type. Each generator auto-registers on import and runs on its own APScheduler cadence.
-- `app/services/queries.py`: read aggregations matching YNAB's Income vs Expense semantics (net per category, RTA recognized as income, transfers to off-budget accounts kept as spending, closed accounts included).
+- `app/session/`: TTLCache session store, signed-cookie middleware, rate-limit middleware.
+- `app/snapshot/`: in-memory data shapes and pure-Python aggregations (replaces SQLAlchemy).
+- `app/insights/`: generator framework plus one module per card type. Each generator auto-registers on import.
+- `app/agent/`: streaming Claude tool-use loop with per-request key, 20-tool-call cap, 60s wall-clock cap.
+- `frontend/app/welcome/`: onboarding flow (token entry + budget picker).
 - `frontend/app/insights/`: feed + per-card detail routes.
-- `frontend/app/reports/`: row-for-row diff against YNAB's CSV when the dashboard totals don't agree.
+- `frontend/app/settings/`: refresh, end session, privacy notice.
 
-Design notes (heuristics, thresholds, data model, API surface) live in [`DESIGN.md`](DESIGN.md). Deployment in [`../docs/deployment.md`](../docs/deployment.md).
+Design notes (heuristics, thresholds, data model, session lifecycle, rate-limit numbers) in [`DESIGN.md`](DESIGN.md). The v2.5 planning doc with the rationale lives at [`../docs/ynab-insights.md`](../docs/ynab-insights.md). Deployment in [`../docs/deployment.md`](../docs/deployment.md).

@@ -3,30 +3,23 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu } from "lucide-react";
+import { Menu, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
-  SheetClose,
 } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { BudgetSwitcher } from "@/components/budget-switcher";
 import { LogoMark } from "@/components/brand/logo";
-import type { BudgetResponse } from "@/lib/api-types";
 
 const NAV_ITEMS: { href: string; label: string }[] = [
   { href: "/insights", label: "Insights" },
   { href: "/ask", label: "Ask" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/accounts", label: "Accounts" },
-  { href: "/categories", label: "Categories" },
-  { href: "/transactions", label: "Transactions" },
-  { href: "/reports", label: "Reports" },
 ];
 
 function NavLink({
@@ -39,7 +32,7 @@ function NavLink({
   onClick?: () => void;
 }) {
   const pathname = usePathname();
-  const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href);
+  const isActive = pathname.startsWith(href);
   return (
     <Link
       href={href}
@@ -56,13 +49,11 @@ function NavLink({
   );
 }
 
-export function Nav({
-  budgets,
-  selectedBudgetId,
-}: {
-  budgets: BudgetResponse[];
-  selectedBudgetId: string | null;
-}) {
+export function Nav() {
+  const pathname = usePathname();
+  // Hide the nav on the welcome page so it doesn't compete with the centered card.
+  if (pathname === "/welcome") return null;
+
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
@@ -79,7 +70,17 @@ export function Nav({
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-2">
-          <BudgetSwitcher budgets={budgets} selected={selectedBudgetId} />
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            className={cn(
+              "inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors",
+              "hover:bg-accent hover:text-foreground",
+              pathname.startsWith("/settings") && "text-foreground",
+            )}
+          >
+            <Settings className="h-4 w-4" />
+          </Link>
           <ThemeToggle />
           <Sheet>
             <SheetTrigger asChild>
@@ -102,6 +103,9 @@ export function Nav({
                     <NavLink {...item} />
                   </SheetClose>
                 ))}
+                <SheetClose asChild>
+                  <NavLink href="/settings" label="Settings" />
+                </SheetClose>
               </nav>
             </SheetContent>
           </Sheet>

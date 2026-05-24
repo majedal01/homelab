@@ -47,7 +47,7 @@ Full design in [`docs/deployment.md`](docs/deployment.md).
 
 **Status:** In progress.
 
-An AI financial coach that lives alongside YNAB. Pulls data from YNAB into a local Postgres, surfaces a feed of forward-looking cards (subscriptions, spending anomalies, cashflow forecasts, goal trajectories, category drift, year/quarter retrospectives), and answers natural-language follow-ups with a Claude-backed agent (`Ask`). FastAPI + Next.js + Postgres.
+An AI financial coach that lives alongside YNAB. Bring your own YNAB and Anthropic keys, pick a budget, get a feed of forward-looking cards (subscriptions, spending anomalies, cashflow forecasts, goal trajectories, category drift, year/quarter retrospectives). A Claude-backed agent (`Ask`) answers natural-language follow-ups. Zero persistence: tokens and YNAB data live in process memory only, evicted after one hour idle. FastAPI + Next.js.
 
 - Source: [`ynab_insights/`](ynab_insights/) (backend + frontend live together)
 - Design notes: [`ynab_insights/DESIGN.md`](ynab_insights/DESIGN.md)

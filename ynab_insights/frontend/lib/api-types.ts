@@ -1,68 +1,43 @@
 /**
- * Generated types for the FastAPI backend.
+ * Hand-curated mirror of the FastAPI Pydantic response models (v2.5).
  *
- * Run `npm run generate-types` against a live FastAPI instance to refresh this
- * file from the live OpenAPI schema. The hand-curated subset below mirrors the
- * server's Pydantic response models (app/schemas/*.py) and the agent's
- * AskResult. CI verifies the generated file is in sync.
+ * Run the live OpenAPI generator against a running backend to refresh
+ * (`npm run generate-types`); this committed file is the source of truth
+ * for editor types and is verified for drift in CI.
  */
 
-export interface BudgetResponse {
+// --- Session (v2.5) ---------------------------------------------------------
+
+export interface BudgetOption {
   id: string;
   name: string;
-  currency: string;
   last_modified_on: string;
 }
 
-export interface AccountResponse {
-  id: string;
-  budget_id: string;
-  name: string;
-  type: string;
-  balance_cents: number;
-  on_budget: boolean;
-  closed: boolean;
+export interface CreateSessionResponse {
+  sid: string;
+  budgets: BudgetOption[];
+  created_at: string;
+  expires_at: string;
 }
 
-export interface CategoryResponse {
-  id: string;
-  budget_id: string;
-  category_group_id: string | null;
-  name: string;
-  hidden: boolean;
+export interface SessionPublic {
+  sid: string;
+  budget_id: string | null;
+  budget_name: string | null;
+  created_at: string;
+  last_active_at: string;
+  last_synced_at: string | null;
+  expires_at: string;
 }
 
-export interface PayeeResponse {
-  id: string;
-  budget_id: string;
-  name: string;
-  transfer_account_id: string | null;
+export interface SessionErrorBody {
+  error: string;
+  message: string;
+  retry_after_seconds?: number;
 }
 
-export interface TransactionResponse {
-  id: string;
-  budget_id: string;
-  account_id: string;
-  account_name: string;
-  category_id: string | null;
-  category_name: string | null;
-  payee_id: string | null;
-  payee_name: string | null;
-  transfer_account_id: string | null;
-  date: string;
-  amount_cents: number;
-  memo: string | null;
-  cleared: string;
-  approved: boolean;
-}
-
-export interface SyncResult {
-  budgets: number;
-  accounts: number;
-  categories: number;
-  payees: number;
-  transactions: number;
-}
+// --- Ask --------------------------------------------------------------------
 
 export interface ToolCall {
   tool: string;
@@ -71,32 +46,17 @@ export interface ToolCall {
   is_error: boolean;
 }
 
-export interface AskResult {
-  question: string;
-  answer: string;
-  tool_calls: ToolCall[];
-  turns_used: number;
-  stop_reason: string;
-}
-
 export interface AskRequest {
   question: string;
-  budget_id?: string | null;
-  /**
-   * Prior conversation in Anthropic message format. Frontend persists this
-   * in sessionStorage and posts on every request; backend stays stateless.
-   */
   history?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
-export interface SuggestionResponse {
-  suggestions: string[];
-}
+// --- Insights ---------------------------------------------------------------
 
 export interface HealthResponse {
   status: string;
-  version: string;
-  env: string;
+  version?: string;
+  env?: string;
 }
 
 export type CardType =
@@ -195,7 +155,7 @@ export interface CategoryDriftData {
   drift_pct: number;
   drift_cents_per_month: number;
   direction: "up" | "down";
-  monthly_nets_cents: number[]; // 12 oldest-first, positive = spend
+  monthly_nets_cents: number[];
 }
 
 export interface YearInMoneyTopCategoryEntry {
@@ -273,42 +233,4 @@ export interface InsightRunResponse {
 
 export interface GenerateResponse {
   run_ids: number[];
-}
-
-export interface MonthlyTrendPointResponse {
-  year: number;
-  month: number; // 1-indexed (Jan = 1)
-  spending_cents: number;
-  income_cents: number;
-}
-
-export interface MonthlyTrendResponse {
-  points: MonthlyTrendPointResponse[];
-}
-
-export interface CategoryNetResponse {
-  category_id: string | null;
-  category_name: string | null;
-  net_cents: number; // negative = net outflow, positive = net refund
-}
-
-export interface IncomeSourceResponse {
-  payee_id: string | null;
-  payee_name: string | null;
-  amount_cents: number;
-}
-
-export interface PeriodSummaryResponse {
-  date_from: string;
-  date_to: string;
-  income_cents: number;
-  spending_cents: number; // positive (matches YNAB's "Total Expenses" inverted)
-  net_income_cents: number;
-  transaction_count: number;
-  by_category: CategoryNetResponse[];
-  by_income_source: IncomeSourceResponse[];
-  gross_outflow_cents: number;
-  gross_inflow_cents: number;
-  uncategorized_outflow_cents: number;
-  uncategorized_inflow_cents: number;
 }

@@ -1,13 +1,11 @@
-"""Generator framework: abstract base, registry, and orchestrator.
+"""Generator framework: abstract base, registry, and orchestrator (v2.5).
 
-A generator is a class subclassing `InsightGenerator` with a `card_type`,
-a `cadence`, and an async `run()` that returns `GeneratedInsight`
-objects. Importing a generator module is enough to register it (the
+Generators take a `YnabSnapshot` and an Anthropic key. They are side-effect
+free; the orchestrator runs them and produces in-memory `Insight` and
+`RunRecord` objects to attach to the session.
+
+Importing a generator module is enough to register it (the
 `@register_generator` decorator runs at class-definition time).
-
-The orchestrator (`execute_generator`) is the only path that writes to
-`insights` and `insight_runs`. It captures timing, upserts by
-`(budget_id, dedup_key)`, and records the run regardless of outcome.
 """
 
 from __future__ import annotations
@@ -20,34 +18,59 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import SecretStr
 
-from app.config import Settings
-from app.models import Insight, InsightRun
-from app.services.metrics import counters
+from app.snapshot.models import YnabSnapshot
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class GeneratedInsight:
-    """Output unit of a generator. The orchestrator turns it into an Insight row."""
+    """Output unit of a generator. Orchestrator wraps it as an `Insight`."""
 
     dedup_key: str
     title: str
     summary: str
     structured_data: dict[str, Any]
     llm_enhanced: bool = False
-    # Hint to the orchestrator for which budget owns this insight when a
-    # generator covers multiple budgets in one run. Defaults to the budget
-    # passed into `run()`.
-    budget_id: str | None = None
+
+
+@dataclass
+class Insight:
+    """In-memory insight, session-scoped. Same shape as the old DB row."""
+
+    id: int
+    budget_id: str
+    card_type: str
+    dedup_key: str
+    title: str
+    summary: str
+    structured_data: dict[str, Any]
+    generated_at: datetime
+    refreshed_at: datetime
+    llm_enhanced: bool
+    dismissed_at: datetime | None = None
+
+
+@dataclass
+class RunRecord:
+    """Observability record for one generator run."""
+
+    id: int
+    card_type: str
+    started_at: datetime
+    finished_at: datetime | None
+    status: str  # 'ok' | 'error'
+    duration_ms: int
+    insights_created: int
+    insights_updated: int
+    error: str | None = None
 
 
 @dataclass
 class RunOutcome:
-    """Summary returned by `execute_generator`. Mirrors the InsightRun row."""
+    """Summary returned by `execute_generator`."""
 
     run_id: int
     status: str
@@ -62,41 +85,33 @@ class InsightGenerator(ABC):
     """Base class for insight generators."""
 
     card_type: ClassVar[str]
-    # Hint for the scheduler; the actual cron / interval wiring lives in
-    # `app.services.scheduler`. Values: "daily" or "weekly".
+    # Scheduling hint: not used in v2.5 (generation is on-demand) but kept for
+    # the metadata UI ("this card refreshes weekly").
     cadence: ClassVar[str]
 
     @abstractmethod
     async def run(
         self,
-        session: AsyncSession,
-        settings: Settings,
-        budget_id: str,
+        snapshot: YnabSnapshot,
+        anthropic_key: SecretStr | None,
     ) -> Sequence[GeneratedInsight]:
-        """Detect insights for the given budget. Side-effect-free; the
-        orchestrator persists the returned `GeneratedInsight`s."""
+        """Detect insights from the in-memory snapshot. Side-effect-free."""
 
 
 _REGISTRY: dict[str, type[InsightGenerator]] = {}
 
 
 def register_generator(cls: type[InsightGenerator]) -> type[InsightGenerator]:
-    """Decorator that registers a generator class by its `card_type`."""
-
     if not getattr(cls, "card_type", None):
         raise TypeError(f"{cls.__name__} must set `card_type` to register")
     if cls.card_type in _REGISTRY and _REGISTRY[cls.card_type] is not cls:
-        raise RuntimeError(
-            f"duplicate generator registration for card_type={cls.card_type!r}: "
-            f"{_REGISTRY[cls.card_type]!r} vs {cls!r}"
-        )
+        raise RuntimeError(f"duplicate generator registration for card_type={cls.card_type!r}")
     _REGISTRY[cls.card_type] = cls
     return cls
 
 
 def all_generators() -> list[type[InsightGenerator]]:
-    """Snapshot of every registered generator class, sorted by card_type for
-    deterministic iteration order in the orchestrator and on the runs page."""
+    """Snapshot of every registered generator, sorted by card_type."""
     return [_REGISTRY[k] for k in sorted(_REGISTRY)]
 
 
@@ -106,45 +121,41 @@ def get_generator(card_type: str) -> type[InsightGenerator] | None:
 
 async def execute_generator(
     generator_cls: type[InsightGenerator],
-    session: AsyncSession,
-    settings: Settings,
-    budget_id: str,
-) -> RunOutcome:
-    """Run a generator and persist its output.
+    snapshot: YnabSnapshot,
+    anthropic_key: SecretStr | None,
+    *,
+    next_id: int,
+    next_run_id: int,
+    existing: dict[tuple[str, str], Insight] | None = None,
+) -> tuple[RunOutcome, list[Insight], RunRecord]:
+    """Run one generator. Returns (outcome, updated insight list, run record).
 
-    Opens an `InsightRun` row before calling `run()`, upserts each returned
-    `GeneratedInsight` by `(budget_id, dedup_key)`, and closes the run with
-    final status and counts. Exceptions are caught so a misbehaving generator
-    can't crash the scheduler or the on-demand endpoint.
+    `existing` maps (budget_id, dedup_key) -> Insight so we can upsert
+    in-place: refresh content + refreshed_at, preserve dismissed_at and id.
+    The caller (router) merges the returned `insights` list back into the
+    session.
     """
     started = datetime.now(UTC)
-    run = InsightRun(
-        card_type=generator_cls.card_type,
-        started_at=started,
-        status="running",
-    )
-    session.add(run)
-    await session.flush()  # populate run.id
+    perf_started = time.perf_counter()
 
     created = 0
     updated = 0
     insight_ids: list[int] = []
+    new_or_updated: list[Insight] = []
     error: str | None = None
 
-    perf_started = time.perf_counter()
+    by_key = existing or {}
+
     try:
-        outputs = await generator_cls().run(session, settings, budget_id)
+        outputs = await generator_cls().run(snapshot, anthropic_key)
         for output in outputs:
-            owner_budget_id = output.budget_id or budget_id
-            stmt = select(Insight).where(
-                Insight.budget_id == owner_budget_id,
-                Insight.dedup_key == output.dedup_key,
-            )
-            existing = (await session.execute(stmt)).scalar_one_or_none()
+            key = (snapshot.budget_id, output.dedup_key)
             now = datetime.now(UTC)
-            if existing is None:
+            prior = by_key.get(key)
+            if prior is None:
                 insight = Insight(
-                    budget_id=owner_budget_id,
+                    id=next_id,
+                    budget_id=snapshot.budget_id,
                     card_type=generator_cls.card_type,
                     dedup_key=output.dedup_key,
                     title=output.title,
@@ -154,42 +165,51 @@ async def execute_generator(
                     refreshed_at=now,
                     llm_enhanced=output.llm_enhanced,
                 )
-                session.add(insight)
-                await session.flush()
+                next_id += 1
+                new_or_updated.append(insight)
                 insight_ids.append(insight.id)
                 created += 1
             else:
-                existing.title = output.title
-                existing.summary = output.summary
-                existing.structured_data = output.structured_data
-                existing.refreshed_at = now
-                existing.llm_enhanced = output.llm_enhanced
-                insight_ids.append(existing.id)
+                prior.title = output.title
+                prior.summary = output.summary
+                prior.structured_data = output.structured_data
+                prior.refreshed_at = now
+                prior.llm_enhanced = output.llm_enhanced
+                new_or_updated.append(prior)
+                insight_ids.append(prior.id)
                 updated += 1
-
-        run.status = "ok"
-        counters.insight_runs_ok += 1
+        status = "ok"
     except Exception as exc:  # noqa: BLE001
-        # Caught broadly: scheduler must not crash on a misbehaving generator.
-        logger.exception("generator %s failed for budget %s", generator_cls.card_type, budget_id)
+        # Caught broadly: one bad generator must not crash the request.
+        logger.exception(
+            "generator %s failed for budget %s",
+            generator_cls.card_type,
+            snapshot.budget_id,
+        )
         error = f"{type(exc).__name__}: {exc}"
-        run.status = "error"
-        run.error = error
-        counters.insight_runs_failed += 1
-    finally:
-        run.finished_at = datetime.now(UTC)
-        duration_ms = int((time.perf_counter() - perf_started) * 1000)
-        run.duration_ms = duration_ms
-        run.insights_created = created
-        run.insights_updated = updated
-        await session.commit()
+        status = "error"
 
-    return RunOutcome(
-        run_id=run.id,
-        status=run.status,
+    finished = datetime.now(UTC)
+    duration_ms = int((time.perf_counter() - perf_started) * 1000)
+
+    record = RunRecord(
+        id=next_run_id,
+        card_type=generator_cls.card_type,
+        started_at=started,
+        finished_at=finished,
+        status=status,
+        duration_ms=duration_ms,
+        insights_created=created,
+        insights_updated=updated,
+        error=error,
+    )
+    outcome = RunOutcome(
+        run_id=next_run_id,
+        status=status,
         insights_created=created,
         insights_updated=updated,
         duration_ms=duration_ms,
         error=error,
         insight_ids=insight_ids,
     )
+    return outcome, new_or_updated, record

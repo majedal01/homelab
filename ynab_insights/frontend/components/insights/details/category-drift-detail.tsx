@@ -57,12 +57,6 @@ export function CategoryDriftDetail({ data }: { data: CategoryDriftData }) {
         />
       </div>
 
-      <a
-        href={`/transactions?category_id=${data.category_id}`}
-        className="inline-flex items-center text-sm text-primary hover:underline"
-      >
-        Open all transactions for {data.category_name} →
-      </a>
     </div>
   );
 }
