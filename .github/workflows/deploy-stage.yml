@@ -71,13 +71,17 @@ jobs:
             "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}:/home/deploy/stacks/stage/docker-compose.yml"
 
       - name: Pull image and restart stack
+        # `--remove-orphans` kills containers for services that used to be in
+        # the compose file but aren't anymore (e.g. the v2.4 `db` service that
+        # outlived the v2.5 deploy on the prod stack). Without it, deleted
+        # services keep running and silently consume memory.
         run: |
           ssh -i ~/.ssh/deploy_key \
             "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
             "cd /home/deploy/stacks/stage && \
              export APP_VERSION=${{ github.sha }} && \
              docker compose pull && \
-             docker compose up -d"
+             docker compose up -d --remove-orphans"
 
       - name: Smoke check /health
         run: |
