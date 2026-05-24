@@ -42,6 +42,7 @@ async def ask(
         settings=settings,
         question=body.question,
         history=body.history,
+        anthropic_model=session.anthropic_model,
     )
     return StreamingResponse(
         generator,

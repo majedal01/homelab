@@ -7,7 +7,14 @@ import { ArrowRight, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { BudgetOption, CreateSessionResponse, SessionErrorBody } from "@/lib/api-types";
+import { cn } from "@/lib/utils";
+import {
+  ANTHROPIC_MODELS,
+  DEFAULT_ANTHROPIC_MODEL,
+  type BudgetOption,
+  type CreateSessionResponse,
+  type SessionErrorBody,
+} from "@/lib/api-types";
 
 type Step = "tokens" | "budget";
 
@@ -22,6 +29,7 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
   const [error, setError] = React.useState<string | null>(null);
   const [budgets, setBudgets] = React.useState<BudgetOption[]>([]);
   const [selectedBudget, setSelectedBudget] = React.useState<string | null>(null);
+  const [model, setModel] = React.useState<string>(DEFAULT_ANTHROPIC_MODEL);
 
   async function onTokenSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -34,7 +42,11 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
       const response = await fetch("/api/session", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ynab_token: ynabToken, anthropic_key: anthropicKey }),
+        body: JSON.stringify({
+          ynab_token: ynabToken,
+          anthropic_key: anthropicKey,
+          anthropic_model: model,
+        }),
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as
@@ -109,6 +121,7 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
               hintHref="https://console.anthropic.com/settings/keys"
               required
             />
+            <ModelPicker value={model} onChange={setModel} disabled={submitting} />
             {error && (
               <p className="text-sm text-destructive" role="alert">
                 {error}
@@ -233,6 +246,50 @@ function Field({ name, label, placeholder, hint, hintHref, required, autoFocus }
           )}
         </p>
       )}
+    </div>
+  );
+}
+
+function ModelPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <span className="block text-sm font-medium">Model</span>
+      <div className="grid gap-1.5 sm:grid-cols-3">
+        {ANTHROPIC_MODELS.map((m) => {
+          const active = m.value === value;
+          return (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => onChange(m.value)}
+              disabled={disabled}
+              aria-pressed={active}
+              className={cn(
+                "flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left text-xs transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                active
+                  ? "border-foreground bg-foreground/5"
+                  : "border-border bg-background hover:border-foreground/30",
+                disabled && "opacity-60",
+              )}
+            >
+              <span className="text-sm font-medium">{m.label}</span>
+              <span className="text-muted-foreground">{m.tagline}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        You can&apos;t switch mid-session. End the session in Settings to re-pick.
+      </p>
     </div>
   );
 }

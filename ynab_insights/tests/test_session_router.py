@@ -75,6 +75,35 @@ async def test_create_session_happy_path(client: AsyncClient) -> None:
     assert VALID_KEY not in text
 
 
+async def test_create_session_accepts_known_model(client: AsyncClient) -> None:
+    r = await client.post(
+        "/api/session",
+        json={
+            "ynab_token": VALID_YNAB,
+            "anthropic_key": VALID_KEY,
+            "anthropic_model": "claude-sonnet-4-6",
+        },
+    )
+    assert r.status_code == 200, r.text
+    # Reading the session back surfaces the picked model.
+    get = await client.get("/api/session")
+    assert get.status_code == 200
+    assert get.json()["anthropic_model"] == "claude-sonnet-4-6"
+
+
+async def test_create_session_rejects_unknown_model(client: AsyncClient) -> None:
+    r = await client.post(
+        "/api/session",
+        json={
+            "ynab_token": VALID_YNAB,
+            "anthropic_key": VALID_KEY,
+            "anthropic_model": "claude-opus-9000-mega",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"] == "unknown_anthropic_model"
+
+
 async def test_create_session_rejects_bad_ynab_format(client: AsyncClient) -> None:
     r = await client.post(
         "/api/session",

@@ -65,10 +65,13 @@ async def run_agent(
     anthropic_key: SecretStr,
     settings: Settings,
     question: str,
+    anthropic_model: str | None = None,
 ) -> AskResult:
     """One non-streaming Ask turn. Enforces the agent guardrails."""
     if len(question) > settings.agent_input_max_chars:
         raise ValueError(f"question too long ({len(question)} > {settings.agent_input_max_chars})")
+
+    model = anthropic_model or settings.anthropic_model
 
     client = anthropic.AsyncAnthropic(api_key=anthropic_key.get_secret_value())
     tool_specs = [t.to_anthropic_spec() for t in TOOL_REGISTRY.values()]
@@ -81,7 +84,7 @@ async def run_agent(
 
     try:
         result = await asyncio.wait_for(
-            _loop(client, settings, snapshot, system, messages, tool_specs, trace, question),
+            _loop(client, settings, model, snapshot, system, messages, tool_specs, trace, question),
             timeout=settings.agent_max_duration_seconds,
         )
     except TimeoutError:
@@ -98,6 +101,7 @@ async def run_agent(
 async def _loop(  # noqa: PLR0913 (params are all required context)
     client: anthropic.AsyncAnthropic,
     settings: Settings,
+    model: str,
     snapshot: YnabSnapshot,
     system: str,
     messages: list[dict[str, Any]],
@@ -108,7 +112,7 @@ async def _loop(  # noqa: PLR0913 (params are all required context)
     tool_call_count = 0
     for turn in range(settings.agent_max_tool_calls + 1):
         response = await client.messages.create(
-            model=settings.anthropic_model,
+            model=model,
             max_tokens=4096,
             system=system,
             tools=tool_specs,  # type: ignore[arg-type]

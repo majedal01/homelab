@@ -49,11 +49,17 @@ async def enhance_copy(
     fallback_summary: str,
     card_type: str,
     payload: dict[str, Any],
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
 ) -> EnhancedCopy:
-    """Try to rewrite (title, summary). Always returns; never raises."""
+    """Try to rewrite (title, summary). Always returns; never raises.
+
+    `model` is the user's per-session pick; None falls through to
+    DEFAULT_MODEL so existing call sites that don't yet thread the
+    session model don't need to change.
+    """
     if anthropic_key is None:
         return EnhancedCopy(title=fallback_title, summary=fallback_summary, used_llm=False)
+    resolved_model = model or DEFAULT_MODEL
 
     user_message = json.dumps(
         {
@@ -69,7 +75,7 @@ async def enhance_copy(
         client = anthropic.AsyncAnthropic(api_key=anthropic_key.get_secret_value())
         response = await asyncio.wait_for(
             client.messages.create(
-                model=model,
+                model=resolved_model,
                 max_tokens=512,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_message}],

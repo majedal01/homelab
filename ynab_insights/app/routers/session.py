@@ -30,6 +30,18 @@ router = APIRouter(prefix="/api/session", tags=["session"])
 YNAB_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}$")
 ANTHROPIC_KEY_RE = re.compile(r"^sk-ant-[A-Za-z0-9_-]{20,256}$")
 
+# Models the user can pick on the welcome screen. Keep this list in sync with
+# the dropdown in `frontend/components/welcome/onboarding-card.tsx`. New
+# Anthropic releases need a code change here, intentionally: an unknown model
+# id would silently 404 at the Anthropic SDK call site.
+ALLOWED_ANTHROPIC_MODELS = frozenset(
+    {
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+    }
+)
+
 
 StoreDep = Annotated[SessionStore, Depends(get_session_store)]
 
@@ -39,6 +51,10 @@ class CreateSessionRequest(BaseModel):
 
     ynab_token: SecretStr
     anthropic_key: SecretStr
+    # Optional. Server validates against ALLOWED_ANTHROPIC_MODELS. When
+    # omitted, the session falls through to Settings.anthropic_model at
+    # call time (no need to bake the default into UserSession).
+    anthropic_model: str | None = None
 
 
 class BudgetOption(BaseModel):
@@ -148,6 +164,11 @@ async def create_session(
         raise _bad("invalid_ynab_token_format", "YNAB token format looks wrong.")
     if not ANTHROPIC_KEY_RE.match(anthropic_key):
         raise _bad("invalid_anthropic_key_format", "Anthropic keys start with 'sk-ant-'.")
+    if body.anthropic_model is not None and body.anthropic_model not in ALLOWED_ANTHROPIC_MODELS:
+        raise _bad(
+            "unknown_anthropic_model",
+            "That model isn't supported. Pick Haiku, Sonnet, or Opus.",
+        )
 
     await _ping_anthropic(anthropic_key)
     budgets = await _fetch_ynab_budgets(ynab_token)
@@ -156,6 +177,7 @@ async def create_session(
         sid=new_sid(),
         ynab_token=SecretStr(ynab_token),
         anthropic_key=SecretStr(anthropic_key),
+        anthropic_model=body.anthropic_model,
     )
     store.create(session)
 
@@ -256,6 +278,7 @@ def _to_public(session: UserSession, store: SessionStore) -> SessionPublic:
         sid=session.sid,
         budget_id=session.budget_id,
         budget_name=session.budget_name,
+        anthropic_model=session.anthropic_model,
         created_at=session.created_at,
         last_active_at=session.last_active_at,
         last_synced_at=session.last_synced_at,

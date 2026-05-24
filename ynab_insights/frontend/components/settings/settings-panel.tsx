@@ -64,6 +64,9 @@ export function SettingsPanel({ session }: { session: SessionPublic }) {
             }
           />
           <Row label="Session expires" value={formatRelative(session.expires_at)} />
+          {session.anthropic_model && (
+            <Row label="Model" value={modelLabel(session.anthropic_model)} />
+          )}
         </CardContent>
       </Card>
 
@@ -130,4 +133,11 @@ function formatRelative(iso: string): string {
   if (mins < 60) return `in ${mins} min`;
   const hrs = Math.round(mins / 60);
   return `in ~${hrs} hr`;
+}
+
+function modelLabel(modelId: string): string {
+  if (modelId.startsWith("claude-haiku")) return "Haiku 4.5";
+  if (modelId.startsWith("claude-sonnet")) return "Sonnet 4.6";
+  if (modelId.startsWith("claude-opus")) return "Opus 4.7";
+  return modelId;
 }

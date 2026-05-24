@@ -70,6 +70,7 @@ class YearInMoneyGenerator(InsightGenerator):
         self,
         snapshot: YnabSnapshot,
         anthropic_key: SecretStr | None,
+        anthropic_model: str | None = None,
     ) -> Sequence[GeneratedInsight]:
         today = date.today()
         bounds = _period_bounds(today)
@@ -255,6 +256,7 @@ class YearInMoneyGenerator(InsightGenerator):
 
         enhanced = await enhance_copy(
             anthropic_key=anthropic_key,
+            model=anthropic_model,
             fallback_title=title,
             fallback_summary=fallback_narrative,
             card_type=self.card_type,
