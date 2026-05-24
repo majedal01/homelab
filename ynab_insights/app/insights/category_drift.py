@@ -1,13 +1,9 @@
 """Category Drift generator.
 
-For each on-budget expense category, compares the trailing quarter's
-monthly average to the average of the three prior quarters. Flags
-categories where the drift exceeds both a percentage threshold (default
-15%) and a dollar threshold ($50/mo). Both upward (overspending) and
-downward (freed-up) drift surface.
-
-Heuristic rationale lives in `docs/ynab-insights.md` under "Card type:
-Category Drift".
+For each on-budget expense category, compare the trailing quarter's monthly
+average to the average of the three prior quarters. Flag categories where
+the drift exceeds both a percentage threshold (15%) and a dollar threshold
+($50/mo). Both upward and downward drift surface.
 """
 
 from __future__ import annotations
@@ -17,13 +13,13 @@ from collections.abc import Sequence
 from datetime import date
 from typing import ClassVar, Literal
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import SecretStr
 
-from app.config import Settings
 from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
 from app.insights.llm import enhance_copy
 from app.insights.schemas import CategoryDriftData
-from app.services.queries import category_monthly_history
+from app.snapshot.models import YnabSnapshot
+from app.snapshot.queries import category_monthly_history
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +29,10 @@ DRIFT_DOLLARS_THRESHOLD_CENTS = 5000  # $50/mo
 
 
 def _month_window() -> tuple[int, int]:
-    """Returns (start_inclusive, end_inclusive) indexes into the 12-month
-    array for the trailing quarter (months `[-3, -1]`, skipping the
-    current incomplete month at index 11)."""
     return 8, 10
 
 
 def _prior_window() -> tuple[int, int]:
-    """Indexes for the three prior quarters: months `[-12, -4]`."""
     return 0, 7
 
 
@@ -51,11 +43,10 @@ class CategoryDriftGenerator(InsightGenerator):
 
     async def run(
         self,
-        session: AsyncSession,
-        settings: Settings,
-        budget_id: str,
+        snapshot: YnabSnapshot,
+        anthropic_key: SecretStr | None,
     ) -> Sequence[GeneratedInsight]:
-        history = await category_monthly_history(session, budget_id, LOOKBACK_MONTHS)
+        history = category_monthly_history(snapshot, LOOKBACK_MONTHS)
         if not history:
             return []
 
@@ -67,16 +58,12 @@ class CategoryDriftGenerator(InsightGenerator):
         for cat in history:
             if len(cat.monthly_nets_cents) != LOOKBACK_MONTHS:
                 continue
-            # Net is negative for outflow. Flip sign so we reason in
-            # positive "spend per month" cents throughout.
             spend = [-x for x in cat.monthly_nets_cents]
             trail = spend[trail_lo : trail_hi + 1]
             prior = spend[prior_lo : prior_hi + 1]
             trail_avg = sum(trail) / len(trail)
             prior_avg = sum(prior) / len(prior)
             if prior_avg <= 0:
-                # No baseline to compare against — skip to avoid divide-by-
-                # zero noise (new category or one with only refund history).
                 continue
 
             drift_cents = round(trail_avg - prior_avg)
@@ -111,11 +98,11 @@ class CategoryDriftGenerator(InsightGenerator):
                 fallback_title = f"{cat.category_name} is down {pct_display} vs the prior year"
                 fallback_summary = (
                     f"{cat.category_name} averaged {dollars_display}/mo less "
-                    f"in the last quarter — room to reallocate."
+                    f"in the last quarter. Room to reallocate."
                 )
 
             enhanced = await enhance_copy(
-                settings=settings,
+                anthropic_key=anthropic_key,
                 fallback_title=fallback_title,
                 fallback_summary=fallback_summary,
                 card_type=self.card_type,

@@ -1,13 +1,8 @@
-# Local development stack: frontend (with hot reload), FastAPI (with --reload),
-# Postgres. Source code is bind-mounted; no images are built or pulled from
-# ghcr.
+# Local development stack (v2.5): frontend (hot reload) + FastAPI (--reload).
+# No database; user state lives in-process per-session.
 #
 # Usage:
-#   cd <repo root>
-#   cp infra/compose/dev/.env.example infra/compose/dev/.env  # first time only
 #   docker compose -f infra/compose/dev/docker-compose.yml up
-#
-# Frontend at http://localhost:3000, FastAPI at http://localhost:8000.
 
 services:
   frontend:
@@ -35,30 +30,9 @@ services:
     environment:
       APP_ENV: stage
       APP_VERSION: dev
-      POSTGRES_HOST: db
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: ${POSTGRES_USER:-dev}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
-      POSTGRES_DB: ${POSTGRES_DB:-dev}
-      YNAB_TOKEN: ${YNAB_TOKEN:-}
-      YNAB_BUDGET_ID: ${YNAB_BUDGET_ID:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SESSION_SECRET_KEY: ${SESSION_SECRET_KEY:-dev-only-change-me}
     volumes:
       - ../../../ynab_insights:/service
-    depends_on:
-      - db
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-dev}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
-      POSTGRES_DB: ${POSTGRES_DB:-dev}
-    ports:
-      - "5432:5432"
-    volumes:
-      - dev_pgdata:/var/lib/postgresql/data
 
 volumes:
-  dev_pgdata:
   frontend_node_modules:

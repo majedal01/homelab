@@ -1,8 +1,13 @@
+"""Runtime settings (v2.5).
+
+No database fields, no provider tokens. Users supply tokens at session
+creation; the app never reads them from env.
+"""
+
 from functools import lru_cache
 from typing import Literal
-from urllib.parse import quote
 
-from pydantic import field_validator, model_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,40 +17,14 @@ class Settings(BaseSettings):
     app_env: Literal["stage", "prod"]
     app_version: str
 
-    # Database. Either set DATABASE_URL directly, or set all four POSTGRES_*
-    # components and the URL is assembled with proper password URL-encoding.
-    database_url: str = ""
-    postgres_host: str = ""
-    postgres_user: str = ""
-    postgres_password: str = ""
-    postgres_db: str = ""
-    postgres_port: int = 5432
-
-    ynab_token: str | None = None
-    ynab_budget_id: str | None = None
-
-    # Background sync interval. 0 disables the scheduler (useful for tests
-    # and for running the app as a one-shot read-only service).
-    sync_interval_minutes: int = 30
-
-    # Anthropic agent (Phase 4). API key is required for /ask; without it the
-    # endpoint returns 503 but the rest of the app still boots.
-    anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-haiku-4-5-20251001"
-    ask_max_turns: int = 10
-
-    # Insights Feed (v2.4). When False, the scheduler skips all insight
-    # generator jobs (manual `POST /api/insights/generate` still works).
-    insights_generation_enabled: bool = True
-
-    # v2.5 multi-tenant session layer. Secret used to sign the session cookie.
-    # Tests autogenerate one; prod / stage MUST set a stable value via env so
-    # signed cookies survive container restarts (within the same release).
+    # Session secret used to sign the `sid` cookie. Set per environment via
+    # env; rotating breaks all live sessions (acceptable for v2.5).
     session_secret_key: str = "dev-only-do-not-use-in-prod"
 
-    # Rate limit defaults (per-session unless noted). Tunable from env.
-    rate_limit_session_create_per_hour: int = 5  # bucketed per IP
-    rate_limit_snapshot_per_hour: int = 10  # POST /api/session/budget + /refresh
+    # Rate limit defaults (tunable via env). Bucketed per session except
+    # session_create which buckets per IP (no session yet).
+    rate_limit_session_create_per_hour: int = 5
+    rate_limit_snapshot_per_hour: int = 10
     rate_limit_generate_per_hour: int = 10
     rate_limit_ask_per_hour: int = 20
     rate_limit_reads_per_minute: int = 120
@@ -55,46 +34,17 @@ class Settings(BaseSettings):
     agent_max_duration_seconds: int = 60
     agent_input_max_chars: int = 1000
 
-    @field_validator("ynab_token", "ynab_budget_id", "anthropic_api_key", mode="before")
-    @classmethod
-    def _blank_to_none(cls, value: object) -> object:
-        # docker compose's `${VAR:-}` substitution turns an unset host env var
-        # into an empty string in the container. pydantic-settings then reads
-        # "" instead of None, so `is None` guards downstream silently fail.
-        # Treat blank strings as missing so the Optional contract holds.
-        if isinstance(value, str) and not value.strip():
-            return None
-        return value
+    # Optional Anthropic model override; users still bring their own key.
+    anthropic_model: str = "claude-haiku-4-5-20251001"
 
-    @model_validator(mode="after")
-    def _assemble_database_url(self) -> "Settings":
-        if self.database_url:
-            return self
-        missing = [
-            name
-            for name, value in [
-                ("POSTGRES_HOST", self.postgres_host),
-                ("POSTGRES_USER", self.postgres_user),
-                ("POSTGRES_PASSWORD", self.postgres_password),
-                ("POSTGRES_DB", self.postgres_db),
-            ]
-            if not value
-        ]
-        if missing:
-            raise ValueError(
-                f"Set DATABASE_URL or all of POSTGRES_HOST, POSTGRES_USER, "
-                f"POSTGRES_PASSWORD, POSTGRES_DB. Missing: {', '.join(missing)}"
-            )
-        encoded_password = quote(self.postgres_password, safe="")
-        self.database_url = (
-            f"postgresql+asyncpg://{self.postgres_user}:{encoded_password}"
-            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-        )
-        return self
+    @field_validator("session_secret_key", mode="after")
+    @classmethod
+    def _reject_default_in_prod(cls, value: str, info: object) -> str:
+        # We can't get app_env here without a model_validator; defer the
+        # actual rejection to startup wiring. Just hand back the value.
+        return value
 
 
 @lru_cache
 def get_settings() -> Settings:
-    # pydantic-settings reads required fields from env vars at construction;
-    # mypy can't model that and reports them as missing kwargs.
     return Settings()  # type: ignore[call-arg]

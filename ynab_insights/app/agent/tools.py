@@ -1,12 +1,11 @@
-"""Typed tool functions exposed to the Claude agent loop.
+"""Tool functions exposed to the Claude agent loop (v2.5).
 
-Each tool has:
-- A Pydantic input model (so Claude gets a JSON schema and we get validation)
-- An async function that takes (session, validated_input) and returns
-  JSON-serializable output
+Each tool takes the per-request YNAB snapshot and a validated Pydantic
+input. Outputs are JSON-serializable dicts. No database; the snapshot is
+already in memory.
 
-The TOOL_REGISTRY is iterated by the agent loop to build Anthropic tool specs
-and to dispatch tool calls.
+The TOOL_REGISTRY is iterated by the agent loop to build Anthropic
+tool specs and to dispatch calls.
 """
 
 from __future__ import annotations
@@ -17,49 +16,29 @@ from datetime import date
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.queries import (
-    list_accounts_for_budget,
-    list_budgets_ordered,
-    list_categories_for_budget,
-    list_transactions,
-    monthly_summary,
+from app.snapshot.models import YnabSnapshot
+from app.snapshot.queries import (
+    period_summary,
     spending_by_category,
-    transaction_to_response,
+    transactions_in_range,
 )
 
-# Input schemas. Keep these minimal; Claude will populate them.
 
-
-class ListBudgetsInput(BaseModel):
+class NoInput(BaseModel):
     pass
 
 
-class ListAccountsInput(BaseModel):
-    budget_id: str | None = Field(
-        default=None, description="If omitted, returns accounts across all budgets."
-    )
-
-
-class ListCategoriesInput(BaseModel):
-    budget_id: str | None = Field(
-        default=None, description="If omitted, returns categories across all budgets."
-    )
-
-
 class SpendingByCategoryInput(BaseModel):
-    budget_id: str = Field(description="The budget to aggregate within.")
     start_date: date = Field(description="Inclusive start date.")
     end_date: date = Field(description="Inclusive end date.")
 
 
 class TransactionsInput(BaseModel):
-    budget_id: str
     category_id: str | None = Field(default=None, description="Filter to a single category.")
     payee_name_contains: str | None = Field(
         default=None,
-        description="Case-insensitive substring match on payee name (e.g. 'starbucks').",
+        description="Case-insensitive substring match on payee name.",
     )
     date_from: date | None = None
     date_to: date | None = None
@@ -67,7 +46,6 @@ class TransactionsInput(BaseModel):
 
 
 class MonthlySummaryInput(BaseModel):
-    budget_id: str
     year: int = Field(ge=2000, le=2100)
     month: int = Field(ge=1, le=12)
 
@@ -75,98 +53,118 @@ class MonthlySummaryInput(BaseModel):
 # Tool implementations.
 
 
-async def _list_budgets(session: AsyncSession, _: ListBudgetsInput) -> list[dict[str, Any]]:
-    rows = await list_budgets_ordered(session)
-    return [{"id": r.id, "name": r.name, "currency": r.currency} for r in rows]
+def _cents_to_dollars(c: int) -> float:
+    return round(c / 100, 2)
 
 
-async def _list_accounts(session: AsyncSession, inp: ListAccountsInput) -> list[dict[str, Any]]:
-    rows = await list_accounts_for_budget(session, inp.budget_id)
+async def _list_accounts(snap: YnabSnapshot, _: NoInput) -> list[dict[str, Any]]:
     return [
         {
-            "id": r.id,
-            "budget_id": r.budget_id,
-            "name": r.name,
-            "type": r.type,
-            "balance_dollars": round(r.balance_cents / 100, 2),
-            "on_budget": r.on_budget,
+            "id": a.id,
+            "name": a.name,
+            "type": a.type,
+            "on_budget": a.on_budget,
+            "closed": a.closed,
+            "balance_dollars": _cents_to_dollars(a.balance_cents),
         }
-        for r in rows
+        for a in snap.accounts
     ]
 
 
-async def _list_categories(session: AsyncSession, inp: ListCategoriesInput) -> list[dict[str, Any]]:
-    rows = await list_categories_for_budget(session, inp.budget_id)
+async def _list_categories(snap: YnabSnapshot, _: NoInput) -> list[dict[str, Any]]:
     return [
-        {"id": r.id, "budget_id": r.budget_id, "name": r.name, "hidden": r.hidden} for r in rows
+        {
+            "id": c.id,
+            "name": c.name,
+            "hidden": c.hidden,
+            "goal_target_dollars": (
+                _cents_to_dollars(c.goal_target_cents)
+                if c.goal_target_cents is not None
+                else None
+            ),
+            "goal_percentage_complete": c.goal_percentage_complete,
+        }
+        for c in snap.categories
+        if not c.hidden
     ]
 
 
 async def _spending_by_category(
-    session: AsyncSession, inp: SpendingByCategoryInput
+    snap: YnabSnapshot, args: SpendingByCategoryInput
 ) -> list[dict[str, Any]]:
-    rows = await spending_by_category(session, inp.budget_id, inp.start_date, inp.end_date)
     return [
         {
-            "category_id": r.category_id,
-            "category_name": r.category_name or "Uncategorized",
-            "spent_dollars": round(-r.spent_cents / 100, 2),  # positive = amount spent
+            "category_id": row.category_id,
+            "category_name": row.category_name,
+            "spent_dollars": _cents_to_dollars(-row.spent_cents),
         }
-        for r in rows
+        for row in spending_by_category(snap, args.start_date, args.end_date)
     ]
 
 
-async def _transactions(session: AsyncSession, inp: TransactionsInput) -> list[dict[str, Any]]:
-    rows = await list_transactions(
-        session,
-        budget_id=inp.budget_id,
-        category_id=inp.category_id,
-        payee_name_contains=inp.payee_name_contains,
-        date_from=inp.date_from,
-        date_to=inp.date_to,
-        limit=inp.limit,
-    )
-    return [
-        {
-            "id": t.id,
-            "date": t.date.isoformat(),
-            "amount_dollars": round(t.amount_cents / 100, 2),
-            "account_name": t.account_name,
-            "category_name": t.category_name,
-            "payee_name": t.payee_name,
-            "memo": t.memo,
-        }
-        for t in (transaction_to_response(r) for r in rows)
-    ]
+async def _transactions(snap: YnabSnapshot, args: TransactionsInput) -> list[dict[str, Any]]:
+    df = args.date_from or date(1900, 1, 1)
+    dt = args.date_to or date(2100, 1, 1)
+    rows = transactions_in_range(snap, df, dt)
+    payees = snap.payee_by_id()
+    cats = snap.category_by_id()
+
+    filtered: list[dict[str, Any]] = []
+    needle = args.payee_name_contains.lower() if args.payee_name_contains else None
+    for t in rows:
+        if args.category_id and t.category_id != args.category_id:
+            continue
+        payee_name = payees[t.payee_id].name if t.payee_id and t.payee_id in payees else None
+        if needle is not None and (payee_name is None or needle not in payee_name.lower()):
+            continue
+        filtered.append(
+            {
+                "id": t.id,
+                "date": t.date.isoformat(),
+                "amount_dollars": _cents_to_dollars(t.amount_cents),
+                "payee_name": payee_name,
+                "category_name": (
+                    cats[t.category_id].name
+                    if t.category_id and t.category_id in cats
+                    else None
+                ),
+                "memo": t.memo,
+            }
+        )
+        if len(filtered) >= args.limit:
+            break
+    return filtered
 
 
-async def _monthly_summary(session: AsyncSession, inp: MonthlySummaryInput) -> dict[str, Any]:
-    summary = await monthly_summary(session, inp.budget_id, inp.year, inp.month)
+async def _monthly_summary(snap: YnabSnapshot, args: MonthlySummaryInput) -> dict[str, Any]:
+    from calendar import monthrange
+
+    start = date(args.year, args.month, 1)
+    end = date(args.year, args.month, monthrange(args.year, args.month)[1])
+    summary = period_summary(snap, start, end)
     return {
-        "year": summary.year,
-        "month": summary.month,
-        "total_inflow_dollars": round(summary.total_inflow_cents / 100, 2),
-        "total_outflow_dollars": round(summary.total_outflow_cents / 100, 2),
+        "year": args.year,
+        "month": args.month,
+        "income_dollars": _cents_to_dollars(summary.income_cents),
+        "spending_dollars": _cents_to_dollars(summary.spending_cents),
+        "net_dollars": _cents_to_dollars(summary.net_income_cents),
         "transaction_count": summary.transaction_count,
         "top_categories": [
             {
-                "category_name": c.category_name or "Uncategorized",
-                "spent_dollars": round(-c.spent_cents / 100, 2),
+                "category_name": row.category_name,
+                "net_dollars": _cents_to_dollars(row.net_cents),
             }
-            for c in summary.top_categories
+            for row in summary.by_category[:5]
         ],
     }
 
 
-# Registry.
-
-
-@dataclass(frozen=True)
+@dataclass
 class Tool:
     name: str
     description: str
     input_model: type[BaseModel]
-    function: Callable[[AsyncSession, Any], Awaitable[Any]]
+    function: Callable[[YnabSnapshot, Any], Awaitable[Any]]
 
     def to_anthropic_spec(self) -> dict[str, Any]:
         return {
@@ -177,52 +175,33 @@ class Tool:
 
 
 TOOL_REGISTRY: dict[str, Tool] = {
-    "list_budgets": Tool(
-        name="list_budgets",
-        description=(
-            "Return all YNAB budgets the user has access to. Use this to discover budget IDs."
-        ),
-        input_model=ListBudgetsInput,
-        function=_list_budgets,
-    ),
     "list_accounts": Tool(
         name="list_accounts",
-        description=(
-            "List non-closed accounts with their current balance. Optionally filter by budget_id."
-        ),
-        input_model=ListAccountsInput,
+        description="List the user's accounts in the active budget (with balances).",
+        input_model=NoInput,
         function=_list_accounts,
     ),
     "list_categories": Tool(
         name="list_categories",
-        description="List categories. Use to find a category_id for a follow-up query.",
-        input_model=ListCategoriesInput,
+        description="List the user's categories in the active budget.",
+        input_model=NoInput,
         function=_list_categories,
     ),
     "spending_by_category": Tool(
         name="spending_by_category",
-        description=(
-            "Total outflows (spending) grouped by category for a date range. "
-            "Returns categories ordered by amount spent (largest first)."
-        ),
+        description="Net spending per category across a date range, on-budget only.",
         input_model=SpendingByCategoryInput,
         function=_spending_by_category,
     ),
     "transactions": Tool(
         name="transactions",
-        description=(
-            "Search transactions with optional filters. Use payee_name_contains for "
-            "natural-language payee lookups like 'starbucks' or 'amazon'."
-        ),
+        description="Transactions filtered by category, payee substring, and date range.",
         input_model=TransactionsInput,
         function=_transactions,
     ),
     "monthly_summary": Tool(
         name="monthly_summary",
-        description=(
-            "Get inflow, outflow, transaction count, and top 5 spending categories "
-            "for a specific month."
-        ),
+        description="YNAB-style income vs expense summary for one month.",
         input_model=MonthlySummaryInput,
         function=_monthly_summary,
     ),

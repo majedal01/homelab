@@ -1,13 +1,11 @@
-"""Streaming variant of the Claude tool-use agent loop.
+"""Streaming variant of the Claude tool-use agent loop (v2.5).
 
 Yields Server-Sent Events as the model generates tokens, calls tools, and
-finishes the turn. Used by `POST /ask` to give the frontend an
-incremental view of the answer and the tool trace.
+finishes the turn. Caller passes the session snapshot and Anthropic key.
 
-Cancellation contract: if the consumer abandons the generator (e.g. the
-HTTP client disconnects), `asyncio.CancelledError` propagates into the
-`async with client.messages.stream(...)` context, which closes the
-upstream Anthropic connection. We don't burn tokens we won't display.
+Cancellation contract unchanged: if the consumer abandons the generator
+the cancellation propagates into the Anthropic stream context which
+closes the upstream connection.
 """
 
 from __future__ import annotations
@@ -15,82 +13,77 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from datetime import date as _date
 from typing import Any, cast
 
 import anthropic
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import SecretStr
 
 from app.agent.loop import _build_system_prompt
 from app.agent.tools import TOOL_REGISTRY
 from app.config import Settings
-from app.services.metrics import counters
+from app.snapshot.models import YnabSnapshot
 
 logger = logging.getLogger(__name__)
 
 
 def _sse(event: str, data: Any) -> str:
-    """Format one Server-Sent Event. `data` is JSON-encoded unless already a str."""
     payload = data if isinstance(data, str) else json.dumps(data, default=str)
-    # Single-line `data:` is required for parsing on the client; we don't emit
-    # multi-line bodies. JSON dumps escape newlines for us.
     return f"event: {event}\ndata: {payload}\n\n"
 
 
 async def _run_tool(
-    session: AsyncSession,
+    snapshot: YnabSnapshot,
     tool_name: str,
     tool_input: dict[str, Any],
 ) -> tuple[Any, bool]:
-    """Run one tool. Returns (output, is_error)."""
     tool = TOOL_REGISTRY.get(tool_name)
     if tool is None:
         return f"unknown tool: {tool_name}", True
     try:
         validated = tool.input_model.model_validate(tool_input)
-        output = await tool.function(session, validated)
+        output = await tool.function(snapshot, validated)
         return output, False
     except Exception as exc:  # noqa: BLE001
         logger.exception("tool %s failed", tool_name)
-        counters.tool_errors += 1
         return f"{type(exc).__name__}: {exc}", True
 
 
 async def stream_agent(
     *,
-    session: AsyncSession,
+    snapshot: YnabSnapshot,
+    anthropic_key: SecretStr,
     settings: Settings,
     question: str,
-    budget_id: str | None,
     history: list[dict[str, Any]],
 ) -> AsyncIterator[str]:
-    """Yield SSE-formatted strings for the agent turn.
-
-    `history` is the prior conversation in Anthropic message format
-    (`[{"role": "user"|"assistant", "content": ...}, ...]`). The frontend
-    posts it on every request; backend stays stateless.
-    """
-    if settings.anthropic_api_key is None:
-        yield _sse("error", {"message": "ANTHROPIC_API_KEY is not configured"})
+    """Yield SSE-formatted strings for the agent turn. Enforces guardrails."""
+    if len(question) > settings.agent_input_max_chars:
+        yield _sse(
+            "error",
+            {"message": f"Question is over the {settings.agent_input_max_chars}-character limit."},
+        )
         return
 
-    counters.ask_calls += 1
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(api_key=anthropic_key.get_secret_value())
     tool_specs = [t.to_anthropic_spec() for t in TOOL_REGISTRY.values()]
-
-    system = _build_system_prompt(
-        today_iso=_date.today().isoformat(),
-        default_budget_id=budget_id or settings.ynab_budget_id,
-    )
-
+    system = _build_system_prompt(_date.today().isoformat(), snapshot)
     messages: list[dict[str, Any]] = list(history) + [{"role": "user", "content": question}]
 
+    start = time.monotonic()
+    tool_call_count = 0
+
     try:
-        for turn in range(settings.ask_max_turns):
-            # Per-turn collectors. Tool-use blocks complete their JSON input
-            # incrementally; we emit the `tool_use` SSE event at content_block_stop
-            # once the input is fully assembled.
+        for turn in range(settings.agent_max_tool_calls + 1):
+            if time.monotonic() - start > settings.agent_max_duration_seconds:
+                yield _sse(
+                    "done",
+                    {"turns_used": turn, "stop_reason": "timeout"},
+                )
+                return
+
             pending_tools: list[dict[str, Any]] = []
             tool_use_buffers: dict[int, dict[str, Any]] = {}
 
@@ -102,10 +95,6 @@ async def stream_agent(
                 messages=messages,  # type: ignore[arg-type]
             ) as stream:
                 async for raw_event in stream:
-                    # Anthropic's stream-event union is broad (thinking, citations,
-                    # signature deltas, ...). The branches below already discriminate
-                    # on `.type`; treating the event as Any avoids fighting mypy on
-                    # union-attr for fields that only exist on certain variants.
                     event: Any = raw_event
                     et = event.type
                     if et == "content_block_start":
@@ -147,7 +136,6 @@ async def stream_agent(
                                     "input": input_data,
                                 }
                             )
-                    # message_start/delta/stop don't carry payload we forward.
 
                 final = await stream.get_final_message()
 
@@ -159,7 +147,6 @@ async def stream_agent(
                 return
 
             if final.stop_reason != "tool_use":
-                logger.warning("unexpected stop reason: %s", final.stop_reason)
                 yield _sse(
                     "done",
                     {
@@ -169,22 +156,22 @@ async def stream_agent(
                 )
                 return
 
-            # Append the assistant message verbatim so the next turn has full
-            # context, including the tool_use blocks Claude just emitted.
             messages.append({"role": "assistant", "content": final.content})
 
-            # Dispatch each tool, emit results.
             tool_result_blocks: list[dict[str, Any]] = []
             for pending in pending_tools:
+                tool_call_count += 1
+                if tool_call_count > settings.agent_max_tool_calls:
+                    yield _sse(
+                        "done",
+                        {"turns_used": turn + 1, "stop_reason": "max_tool_calls"},
+                    )
+                    return
                 tool_input = cast(dict[str, Any], pending["input"])
-                output, is_error = await _run_tool(session, pending["name"], tool_input)
+                output, is_error = await _run_tool(snapshot, pending["name"], tool_input)
                 yield _sse(
                     "tool_result",
-                    {
-                        "id": pending["id"],
-                        "output": output,
-                        "is_error": is_error,
-                    },
+                    {"id": pending["id"], "output": output, "is_error": is_error},
                 )
                 tool_result_blocks.append(
                     {
@@ -199,19 +186,14 @@ async def stream_agent(
 
         yield _sse(
             "done",
-            {"turns_used": settings.ask_max_turns, "stop_reason": "max_turns"},
+            {"turns_used": settings.agent_max_tool_calls, "stop_reason": "max_tool_calls"},
         )
     except asyncio.CancelledError:
-        # Client closed the connection mid-stream. The `async with` block's
-        # __aexit__ has already shut the Anthropic stream down. Just log and
-        # re-raise so the runtime tears the generator down cleanly.
         logger.info("ask stream cancelled by client")
         raise
     except anthropic.APIError as exc:
-        counters.ask_failures += 1
         logger.exception("anthropic API error mid-stream")
         yield _sse("error", {"message": f"Anthropic API error: {exc}"})
     except Exception as exc:  # noqa: BLE001
-        counters.ask_failures += 1
         logger.exception("agent stream failed")
         yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})

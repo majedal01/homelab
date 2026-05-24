@@ -1,10 +1,9 @@
 """LLM-based copy enhancement for insights.
 
-Each generator can call `enhance_copy` to rewrite the title/summary of its
-deterministic output into warmer language. The call is gated on
-`anthropic_api_key`, has a hard timeout, and falls back silently to the
-deterministic copy on any failure so the generator's run still counts as
-successful.
+Each generator may call `enhance_copy` to rewrite title/summary into
+warmer prose. The call is gated on the provided Anthropic key, has a
+hard timeout, and falls back silently to the deterministic copy on any
+failure so the generator's run still counts as successful.
 """
 
 from __future__ import annotations
@@ -16,14 +15,13 @@ from dataclasses import dataclass
 from typing import Any
 
 import anthropic
-
-from app.config import Settings
+from pydantic import SecretStr
 
 logger = logging.getLogger(__name__)
 
-# Single Anthropic call per insight is cheap; cap aggressively so a slow
-# upstream cannot pile up jobs against the scheduler's max_instances=1.
+# Hard cap so a slow upstream cannot pile up requests against the agent loop.
 LLM_TIMEOUT_SECONDS: float = 5.0
+DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
 
 @dataclass(frozen=True)
@@ -46,20 +44,15 @@ SYSTEM_PROMPT = (
 
 async def enhance_copy(
     *,
-    settings: Settings,
+    anthropic_key: SecretStr | None,
     fallback_title: str,
     fallback_summary: str,
     card_type: str,
     payload: dict[str, Any],
+    model: str = DEFAULT_MODEL,
 ) -> EnhancedCopy:
-    """Try to rewrite (title, summary) for an insight. Always returns a result.
-
-    Falls back to the deterministic copy whenever the API key is missing,
-    the call times out, the response is unparseable, or any other error
-    occurs. The generator decides whether the result was LLM-touched via
-    `used_llm`.
-    """
-    if settings.anthropic_api_key is None:
+    """Try to rewrite (title, summary). Always returns; never raises."""
+    if anthropic_key is None:
         return EnhancedCopy(title=fallback_title, summary=fallback_summary, used_llm=False)
 
     user_message = json.dumps(
@@ -73,10 +66,10 @@ async def enhance_copy(
     )
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        client = anthropic.AsyncAnthropic(api_key=anthropic_key.get_secret_value())
         response = await asyncio.wait_for(
             client.messages.create(
-                model=settings.anthropic_model,
+                model=model,
                 max_tokens=512,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_message}],
@@ -95,7 +88,7 @@ async def enhance_copy(
         if not title or not summary:
             raise ValueError("empty title or summary from LLM")
     except (TimeoutError, anthropic.APIError, ValueError, KeyError, json.JSONDecodeError) as exc:
-        logger.info("llm enhancement skipped (%s): %s", card_type, exc)
+        logger.info("llm enhancement skipped (%s): %s", card_type, type(exc).__name__)
         return EnhancedCopy(title=fallback_title, summary=fallback_summary, used_llm=False)
 
     return EnhancedCopy(title=title, summary=summary, used_llm=True)

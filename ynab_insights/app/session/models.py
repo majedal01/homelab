@@ -35,6 +35,7 @@ class UserSession(BaseModel):
     budget_name: str | None = None
     snapshot: YnabSnapshot | None = None
     insights: list[Any] = Field(default_factory=list)
+    runs: list[Any] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
     last_active_at: datetime = Field(default_factory=_utcnow)
     last_synced_at: datetime | None = None

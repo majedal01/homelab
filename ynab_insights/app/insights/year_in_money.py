@@ -2,11 +2,6 @@
 
 Annual (Jan 1) and quarterly (Apr 1 / Jul 1 / Oct 1) retrospective card.
 Deterministic Python assembles the stats; the LLM writes the narrative.
-Narrative falls back to a deterministic paragraph if the LLM call is
-unavailable.
-
-Heuristic rationale lives in `docs/ynab-insights.md` under "Card type:
-Year in Money".
 """
 
 from __future__ import annotations
@@ -18,11 +13,8 @@ from collections.abc import Sequence
 from datetime import date
 from typing import ClassVar, Literal
 
-from sqlalchemy import func, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from pydantic import SecretStr
 
-from app.config import Settings
 from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
 from app.insights.llm import enhance_copy
 from app.insights.schemas import (
@@ -31,10 +23,10 @@ from app.insights.schemas import (
     YearInMoneyTopCategory,
     YearInMoneyTopPayee,
 )
-from app.models import Account, Category, Payee, Transaction
-from app.services.queries import (
-    INCOME_CATEGORY_NAMES,
-    _exclude_transfers,
+from app.snapshot.models import YnabSnapshot
+from app.snapshot.queries import (
+    _internal_transfer_payee_ids,
+    _is_income_category,
     period_summary,
 )
 
@@ -42,27 +34,14 @@ logger = logging.getLogger(__name__)
 
 
 def _period_bounds(today: date) -> tuple[Literal["annual", "quarterly"], date, date, str] | None:
-    """Return (kind, start, end_inclusive, label) for the period to publish.
-
-    Annual on Jan 1 (looking at the just-finished year). Quarterly on the
-    first of Apr/Jul/Oct (looking at the just-finished quarter). On other
-    days returns None so the generator is a no-op (scheduler still records
-    a successful run with 0 outputs).
-    """
+    """Annual on Jan 1; quarterly on first of Apr/Jul/Oct. Else None."""
     if today.month == 1 and today.day == 1:
         year = today.year - 1
-        return (
-            "annual",
-            date(year, 1, 1),
-            date(year, 12, 31),
-            str(year),
-        )
+        return ("annual", date(year, 1, 1), date(year, 12, 31), str(year))
     if today.day == 1 and today.month in (4, 7, 10):
         month = today.month - 1
-        quarter = month // 3  # 1-indexed (Q1, Q2, Q3)
+        quarter = month // 3
         year = today.year
-        if today.month == 1:
-            year -= 1
         start_month = month - 2
         start = date(year, start_month, 1)
         end = date(year, month, monthrange(year, month)[1])
@@ -89,9 +68,8 @@ class YearInMoneyGenerator(InsightGenerator):
 
     async def run(
         self,
-        session: AsyncSession,
-        settings: Settings,
-        budget_id: str,
+        snapshot: YnabSnapshot,
+        anthropic_key: SecretStr | None,
     ) -> Sequence[GeneratedInsight]:
         today = date.today()
         bounds = _period_bounds(today)
@@ -99,13 +77,16 @@ class YearInMoneyGenerator(InsightGenerator):
             return []
         kind, start, end, label = bounds
 
-        summary = await period_summary(session, budget_id, start, end)
+        summary = period_summary(snapshot, start, end)
         if summary.transaction_count == 0:
-            # Not enough data for this period — skip with a clean no-op so
-            # the scheduler still records an "ok" run.
             return []
 
-        # Top three categories by net spend.
+        on_budget = {a.id for a in snapshot.accounts if a.on_budget}
+        cat_by_id = snapshot.category_by_id()
+        payees_by_id = snapshot.payee_by_id()
+        internal_transfers = _internal_transfer_payee_ids(snapshot)
+
+        # Top 3 categories by net spend.
         top_categories = [
             YearInMoneyTopCategory(
                 category_id=row.category_id,
@@ -116,77 +97,52 @@ class YearInMoneyGenerator(InsightGenerator):
             if row.net_cents < 0
         ][:3]
 
-        # Top five payees by amount × frequency (combined score = total
-        # absolute spend on them).
-        payee_stmt = _exclude_transfers(
-            select(
-                Payee.id,
-                Payee.name,
-                func.count().label("txn_count"),
-                func.coalesce(func.sum(-Transaction.amount_cents), 0).label("total"),
-            )
-            .select_from(Transaction)
-            .outerjoin(Payee, Payee.id == Transaction.payee_id)
-            .outerjoin(Category, Category.id == Transaction.category_id)
-            .join(Account, Account.id == Transaction.account_id)
-            .where(
-                Transaction.budget_id == budget_id,
-                Transaction.date >= start,
-                Transaction.date <= end,
-                Transaction.amount_cents < 0,
-                Transaction.category_id.is_not(None),
-                Category.name.notin_(INCOME_CATEGORY_NAMES),
-                Account.on_budget.is_(True),
-            )
-            .group_by(Payee.id, Payee.name)
-            .order_by(func.sum(-Transaction.amount_cents).desc())
-            .limit(5)
-        )
-        payee_rows = (await session.execute(payee_stmt)).all()
+        # Top 5 payees by total outflow (in-range, excluding income + transfers).
+        payee_amounts: dict[str | None, int] = defaultdict(int)
+        payee_counts: dict[str | None, int] = defaultdict(int)
+        payee_names: dict[str | None, str] = {}
+        biggest: YearInMoneyBiggestSingle | None = None
+        biggest_amount = 0
+
+        for t in snapshot.transactions:
+            if t.account_id not in on_budget:
+                continue
+            if not (start <= t.date <= end):
+                continue
+            if t.payee_id is not None and t.payee_id in internal_transfers:
+                continue
+            cat = cat_by_id.get(t.category_id) if t.category_id else None
+            cat_name = cat.name if cat else None
+            if t.category_id is None or _is_income_category(cat_name):
+                continue
+            if t.amount_cents >= 0:
+                continue
+            outflow = -t.amount_cents  # positive
+            payee_amounts[t.payee_id] += outflow
+            payee_counts[t.payee_id] += 1
+            if t.payee_id is not None:
+                payee = payees_by_id.get(t.payee_id)
+                payee_names[t.payee_id] = payee.name if payee else "Unknown"
+            if t.amount_cents < biggest_amount:
+                biggest_amount = t.amount_cents
+                biggest = YearInMoneyBiggestSingle(
+                    transaction_id=t.id,
+                    date=t.date,
+                    amount_cents=t.amount_cents,
+                    payee_name=payee_names.get(t.payee_id),
+                    category_name=cat_name,
+                )
+
+        top_payee_ids = sorted(payee_amounts, key=lambda p: payee_amounts[p], reverse=True)[:5]
         top_payees = [
             YearInMoneyTopPayee(
-                payee_id=row.id,
-                payee_name=row.name or "Uncategorized payee",
-                transaction_count=int(row.txn_count),
-                amount_cents=int(row.total),
+                payee_id=pid,
+                payee_name=payee_names.get(pid, "Uncategorized payee"),
+                transaction_count=payee_counts[pid],
+                amount_cents=payee_amounts[pid],
             )
-            for row in payee_rows
+            for pid in top_payee_ids
         ]
-
-        # Biggest single transaction (most negative amount).
-        biggest_stmt = _exclude_transfers(
-            select(Transaction)
-            .options(
-                joinedload(Transaction.category),
-                joinedload(Transaction.payee),
-            )
-            .join(Account, Account.id == Transaction.account_id)
-            .outerjoin(Category, Category.id == Transaction.category_id)
-            .where(
-                Transaction.budget_id == budget_id,
-                Transaction.date >= start,
-                Transaction.date <= end,
-                Account.on_budget.is_(True),
-                Transaction.category_id.is_not(None),
-                Category.name.notin_(INCOME_CATEGORY_NAMES),
-                or_(
-                    Transaction.amount_cents < 0,
-                    Transaction.amount_cents > 0,
-                ),
-            )
-            .order_by(Transaction.amount_cents)  # most-negative first
-            .limit(1)
-        )
-        biggest_row = (await session.execute(biggest_stmt)).scalars().first()
-        biggest: YearInMoneyBiggestSingle | None = None
-        if biggest_row is not None and biggest_row.amount_cents < 0:
-            biggest = YearInMoneyBiggestSingle(
-                transaction_id=biggest_row.id,
-                date=biggest_row.date,
-                amount_cents=biggest_row.amount_cents,
-                payee_name=biggest_row.payee.name if biggest_row.payee else None,
-                category_name=biggest_row.category.name if biggest_row.category else None,
-            )
 
         # Monthly savings-rate series.
         months = _months_in_window(start, end)
@@ -194,7 +150,7 @@ class YearInMoneyGenerator(InsightGenerator):
         for y, m in months:
             month_start = date(y, m, 1)
             month_end = date(y, m, monthrange(y, m)[1])
-            month_summary = await period_summary(session, budget_id, month_start, month_end)
+            month_summary = period_summary(snapshot, month_start, month_end)
             if month_summary.income_cents > 0:
                 rate = (
                     month_summary.income_cents - month_summary.spending_cents
@@ -203,9 +159,7 @@ class YearInMoneyGenerator(InsightGenerator):
             else:
                 savings_rate_trend.append(None)
 
-        # Largest single category swing — same shape as Category Drift but
-        # at period granularity. We compare each category's net in the
-        # second half to its net in the first half. Quick + good enough.
+        # Largest category swing first-half vs second-half.
         midpoint = len(months) // 2
         if midpoint >= 1:
             first_half = months[:midpoint]
@@ -213,35 +167,29 @@ class YearInMoneyGenerator(InsightGenerator):
             cat_first: dict[str, int] = defaultdict(int)
             cat_second: dict[str, int] = defaultdict(int)
             cat_names: dict[str, str] = {}
-            for (y, m), bucket, label_bucket in (
-                *[(ym, cat_first, "first") for ym in first_half],
-                *[(ym, cat_second, "second") for ym in second_half],
-            ):
-                month_start = date(y, m, 1)
-                month_end = date(y, m, monthrange(y, m)[1])
-                cat_stmt = _exclude_transfers(
-                    select(
-                        Category.id,
-                        Category.name,
-                        func.coalesce(func.sum(-Transaction.amount_cents), 0).label("net"),
-                    )
-                    .select_from(Transaction)
-                    .outerjoin(Category, Category.id == Transaction.category_id)
-                    .join(Account, Account.id == Transaction.account_id)
-                    .where(
-                        Transaction.budget_id == budget_id,
-                        Transaction.date >= month_start,
-                        Transaction.date <= month_end,
-                        Transaction.category_id.is_not(None),
-                        Category.name.notin_(INCOME_CATEGORY_NAMES),
-                        Account.on_budget.is_(True),
-                    )
-                    .group_by(Category.id, Category.name)
-                )
-                del label_bucket
-                for row in (await session.execute(cat_stmt)).all():
-                    bucket[row.id] += int(row.net)
-                    cat_names[row.id] = row.name
+
+            def _accumulate(month_list: list[tuple[int, int]], bucket: dict[str, int]) -> None:
+                for y, m in month_list:
+                    ms = date(y, m, 1)
+                    me = date(y, m, monthrange(y, m)[1])
+                    for t in snapshot.transactions:
+                        if t.account_id not in on_budget:
+                            continue
+                        if not (ms <= t.date <= me):
+                            continue
+                        if t.payee_id is not None and t.payee_id in internal_transfers:
+                            continue
+                        if t.category_id is None:
+                            continue
+                        cat = cat_by_id.get(t.category_id)
+                        if cat is None or _is_income_category(cat.name):
+                            continue
+                        bucket[t.category_id] += -t.amount_cents
+                        cat_names[t.category_id] = cat.name
+
+            _accumulate(first_half, cat_first)
+            _accumulate(second_half, cat_second)
+
             swing_id, swing_delta = None, 0
             for cat_id in set(cat_first) | set(cat_second):
                 delta = cat_second.get(cat_id, 0) - cat_first.get(cat_id, 0)
@@ -267,7 +215,6 @@ class YearInMoneyGenerator(InsightGenerator):
             else None
         )
 
-        # Deterministic fallback narrative — restrained, observed.
         income_d = summary.income_cents / 100
         spend_d = summary.spending_cents / 100
         net_d = summary.net_income_cents / 100
@@ -306,11 +253,8 @@ class YearInMoneyGenerator(InsightGenerator):
             narrative=fallback_narrative,
         )
 
-        # Enhanced copy: title is short; the LLM gets the full payload and
-        # writes the narrative paragraph. If LLM unavailable, the
-        # deterministic narrative above stays in place.
         enhanced = await enhance_copy(
-            settings=settings,
+            anthropic_key=anthropic_key,
             fallback_title=title,
             fallback_summary=fallback_narrative,
             card_type=self.card_type,
@@ -319,7 +263,7 @@ class YearInMoneyGenerator(InsightGenerator):
         if enhanced.used_llm:
             data.narrative = enhanced.summary
 
-        dedup_key = f"year_in_money:{budget_id}:{label}"
+        dedup_key = f"year_in_money:{snapshot.budget_id}:{label}"
         return [
             GeneratedInsight(
                 dedup_key=dedup_key,

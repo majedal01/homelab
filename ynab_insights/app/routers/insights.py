@@ -1,12 +1,7 @@
-"""Insights Feed API.
+"""Insights API (v2.5).
 
-Five endpoints under `/api/insights`:
-
-- `GET    /api/insights`               feed listing (paginated, dismissable)
-- `GET    /api/insights/{id}`          single insight detail
-- `POST   /api/insights/{id}/dismiss`  mark dismissed (idempotent)
-- `POST   /api/insights/generate`      on-demand run of one or all generators
-- `GET    /api/insights/runs`          generator-run observability listing
+Operates on `request.state.session.snapshot`. No database. Dismissals are
+client-side (localStorage); the server returns every generated insight.
 """
 
 from __future__ import annotations
@@ -14,39 +9,19 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, Query, status
 
-from app.config import Settings, get_settings
-from app.db import get_session
 from app.insights import all_generators, execute_generator, get_generator
+from app.insights.base import Insight
 from app.insights.schemas import (
     CardType,
     GenerateResponse,
     InsightResponse,
     InsightRunResponse,
 )
-from app.models import Insight, InsightRun
-from app.services.queries import list_budgets_ordered
+from app.session.middleware import CurrentSessionDep
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
-
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
-SettingsDep = Annotated[Settings, Depends(get_settings)]
-
-
-def _utc(dt: datetime | None) -> datetime | None:
-    """Normalize naive datetimes to UTC. SQLite (used in tests) drops the
-    timezone on round-trip even for `DateTime(timezone=True)` columns, so
-    a freshly-set tz-aware value and a re-read value would otherwise
-    serialize differently. Postgres preserves tz natively; this is a no-op
-    there."""
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt
 
 
 def _to_response(row: Insight) -> InsightResponse:
@@ -58,116 +33,71 @@ def _to_response(row: Insight) -> InsightResponse:
         title=row.title,
         summary=row.summary,
         structured_data=row.structured_data,  # type: ignore[arg-type]
-        generated_at=_utc(row.generated_at),  # type: ignore[arg-type]
-        refreshed_at=_utc(row.refreshed_at),  # type: ignore[arg-type]
-        dismissed_at=_utc(row.dismissed_at),
+        generated_at=row.generated_at,
+        refreshed_at=row.refreshed_at,
+        dismissed_at=row.dismissed_at,
         llm_enhanced=row.llm_enhanced,
     )
 
 
-async def _resolve_budget_id(
-    session: AsyncSession, settings: Settings, supplied: str | None
-) -> str | None:
-    if supplied is not None:
-        return supplied
-    if settings.ynab_budget_id is not None:
-        return settings.ynab_budget_id
-    budgets = await list_budgets_ordered(session)
-    return budgets[0].id if budgets else None
-
-
 @router.get("", response_model=list[InsightResponse])
 async def list_insights(
-    session: SessionDep,
-    settings: SettingsDep,
-    budget_id: Annotated[str | None, Query()] = None,
+    session: CurrentSessionDep,
     card_type: Annotated[str | None, Query()] = None,
-    include_dismissed: Annotated[bool, Query()] = False,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[InsightResponse]:
-    resolved = await _resolve_budget_id(session, settings, budget_id)
-    if resolved is None:
-        return []
-    stmt = select(Insight).where(Insight.budget_id == resolved)
-    if not include_dismissed:
-        stmt = stmt.where(Insight.dismissed_at.is_(None))
+    insights = cast(list[Insight], session.insights)
     if card_type is not None:
-        stmt = stmt.where(Insight.card_type == card_type)
-    stmt = stmt.order_by(Insight.refreshed_at.desc(), Insight.id.desc()).limit(limit).offset(offset)
-    rows = (await session.execute(stmt)).scalars().all()
-    return [_to_response(r) for r in rows]
+        insights = [i for i in insights if i.card_type == card_type]
+    insights = sorted(insights, key=lambda i: i.refreshed_at, reverse=True)
+    return [_to_response(i) for i in insights[offset : offset + limit]]
 
 
 @router.get("/runs", response_model=list[InsightRunResponse])
 async def list_runs(
-    session: SessionDep,
+    session: CurrentSessionDep,
     card_type: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[InsightRunResponse]:
-    stmt = select(InsightRun).order_by(InsightRun.started_at.desc())
+    runs = list(session.runs)
     if card_type is not None:
-        stmt = stmt.where(InsightRun.card_type == card_type)
-    rows = (await session.execute(stmt.limit(limit))).scalars().all()
+        runs = [r for r in runs if r.card_type == card_type]
+    runs = sorted(runs, key=lambda r: r.started_at, reverse=True)[:limit]
     return [
         InsightRunResponse(
             id=r.id,
             card_type=r.card_type,
-            started_at=_utc(r.started_at),  # type: ignore[arg-type]
-            finished_at=_utc(r.finished_at),
+            started_at=r.started_at,
+            finished_at=r.finished_at,
             status=r.status,
             duration_ms=r.duration_ms,
             insights_created=r.insights_created,
             insights_updated=r.insights_updated,
             error=r.error,
         )
-        for r in rows
+        for r in runs
     ]
 
 
 @router.get("/{insight_id}", response_model=InsightResponse)
-async def get_insight(insight_id: int, session: SessionDep) -> InsightResponse:
-    row = await session.get(Insight, insight_id)
-    if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
-    return _to_response(row)
-
-
-@router.post("/{insight_id}/dismiss", response_model=InsightResponse)
-async def dismiss_insight(insight_id: int, session: SessionDep) -> InsightResponse:
-    row = await session.get(Insight, insight_id)
-    if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
-    if row.dismissed_at is None:
-        row.dismissed_at = datetime.now(UTC)
-        await session.commit()
-    return _to_response(row)
-
-
-@router.post("/{insight_id}/restore", response_model=InsightResponse)
-async def restore_insight(insight_id: int, session: SessionDep) -> InsightResponse:
-    """Undo a dismiss. Backs the optimistic-UI undo toast on the feed."""
-    row = await session.get(Insight, insight_id)
-    if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
-    if row.dismissed_at is not None:
-        row.dismissed_at = None
-        await session.commit()
-    return _to_response(row)
+async def get_insight(insight_id: int, session: CurrentSessionDep) -> InsightResponse:
+    for i in cast(list[Insight], session.insights):
+        if i.id == insight_id:
+            return _to_response(i)
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
 
 
 @router.post("/generate", response_model=GenerateResponse)
 async def generate(
-    session: SessionDep,
-    settings: SettingsDep,
+    session: CurrentSessionDep,
     card_type: Annotated[str | None, Query()] = None,
-    budget_id: Annotated[str | None, Query()] = None,
 ) -> GenerateResponse:
-    resolved = await _resolve_budget_id(session, settings, budget_id)
-    if resolved is None:
+    """Run one generator or all of them against the session's snapshot."""
+    if session.snapshot is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="no budget available; run a sync first",
+            detail={"error": "no_budget_selected", "message": "Pick a budget first."},
         )
 
     if card_type is not None:
@@ -181,8 +111,34 @@ async def generate(
     else:
         targets = all_generators()
 
+    insights_list = cast(list[Insight], session.insights)
+    runs_list = list(session.runs)
+    by_key: dict[tuple[str, str], Insight] = {
+        (i.budget_id, i.dedup_key): i for i in insights_list
+    }
+
+    next_id = max((i.id for i in insights_list), default=0) + 1
+    next_run_id = max((r.id for r in runs_list), default=0) + 1
+
     run_ids: list[int] = []
     for gen_cls in targets:
-        outcome = await execute_generator(gen_cls, session, settings, resolved)
+        outcome, produced, record = await execute_generator(
+            gen_cls,
+            session.snapshot,
+            session.anthropic_key,
+            next_id=next_id,
+            next_run_id=next_run_id,
+            existing=by_key,
+        )
+        for ins in produced:
+            by_key[(ins.budget_id, ins.dedup_key)] = ins
+        next_id = max((i.id for i in by_key.values()), default=0) + 1
+        runs_list.append(record)
+        next_run_id += 1
         run_ids.append(outcome.run_id)
+
+    session.insights = list(by_key.values())
+    session.runs = runs_list
+    session.last_active_at = datetime.now(UTC)
+
     return GenerateResponse(run_ids=run_ids)

@@ -1,28 +1,24 @@
-"""Claude tool-use agent loop (non-streaming).
+"""Claude tool-use agent loop (v2.5, non-streaming).
 
-`stream_agent` in app/agent/stream.py is the production path used by
-POST /ask. This module's `run_agent` remains as the unit-testable
-surface for tool dispatch, error handling, and max-turns capping
-(see tests/test_agent_loop.py). The two share `_build_system_prompt`.
-
-Sends a user question to Claude with tool definitions, dispatches any tool
-calls Claude makes against the local DB, loops until Claude returns a final
-text answer or the turn budget is exhausted.
+Keeps the unit-testable surface for tool dispatch + max-turns capping
+that the streaming variant in `stream.py` mirrors. Caller passes the
+session's snapshot and Anthropic key explicitly; the loop never reads
+from settings for tokens.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, cast
 
 import anthropic
-from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, SecretStr
 
 from app.agent.tools import TOOL_REGISTRY
 from app.config import Settings
-from app.services.metrics import counters
+from app.snapshot.models import YnabSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -42,27 +38,19 @@ class AskResult(BaseModel):
     stop_reason: str
 
 
-def _build_system_prompt(today_iso: str, default_budget_id: str | None) -> str:
-    budget_hint = (
-        f"The user's default budget id is `{default_budget_id}`. "
-        "Pass this as `budget_id` to tools unless the user clearly means a different budget."
-        if default_budget_id
-        else (
-            "The user has not specified a default budget. "
-            "Use list_budgets to discover one if needed."
-        )
-    )
+def _build_system_prompt(today_iso: str, snapshot: YnabSnapshot) -> str:
     return (
-        "You are an analyst answering questions about the user's personal YNAB budget data.\n\n"
-        "You have read-only tools that query a local Postgres database synced from YNAB.\n\n"
+        "You are an analyst answering questions about the user's personal "
+        "YNAB budget data.\n\n"
+        f"Active budget: {snapshot.budget_name}, currency {snapshot.currency_iso}.\n"
+        f"Today is {today_iso}. Snapshot fetched at {snapshot.fetched_at.isoformat()}.\n\n"
         "Conventions:\n"
-        f"- Today is {today_iso}.\n"
         "- Negative amounts are outflows (spending). Positive are inflows.\n"
-        "- Tool responses use `dollars` fields (already converted from YNAB milliunits).\n"
-        f"- {budget_hint}\n\n"
-        "Use the tools to look up actual numbers; do not make them up. After you have what "
-        "you need, give a concise answer with the specific figures and a brief one-line "
-        "explanation. Format dollar amounts as $1,234.56."
+        "- Tool outputs use `_dollars` fields (already converted from cents).\n"
+        "- Tools operate only on the active budget; budget_id is implicit.\n\n"
+        "Use the tools to look up actual numbers. Do not invent figures. "
+        "After you have what you need, answer concisely with the figures and "
+        "a brief explanation. Format dollar amounts as $1,234.56."
     )
 
 
@@ -73,29 +61,54 @@ def _extract_text(response: anthropic.types.Message) -> str:
 
 async def run_agent(
     *,
-    session: AsyncSession,
+    snapshot: YnabSnapshot,
+    anthropic_key: SecretStr,
     settings: Settings,
     question: str,
-    budget_id: str | None = None,
 ) -> AskResult:
-    if settings.anthropic_api_key is None:
-        raise RuntimeError("ANTHROPIC_API_KEY is not configured")
+    """One non-streaming Ask turn. Enforces the agent guardrails."""
+    if len(question) > settings.agent_input_max_chars:
+        raise ValueError(
+            f"question too long ({len(question)} > {settings.agent_input_max_chars})"
+        )
 
-    counters.ask_calls += 1
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(api_key=anthropic_key.get_secret_value())
     tool_specs = [t.to_anthropic_spec() for t in TOOL_REGISTRY.values()]
 
     from datetime import date as _date
 
-    system = _build_system_prompt(
-        today_iso=_date.today().isoformat(),
-        default_budget_id=budget_id or settings.ynab_budget_id,
-    )
-
+    system = _build_system_prompt(_date.today().isoformat(), snapshot)
     messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
     trace: list[ToolCall] = []
 
-    for turn in range(settings.ask_max_turns):
+    try:
+        result = await asyncio.wait_for(
+            _loop(client, settings, snapshot, system, messages, tool_specs, trace, question),
+            timeout=settings.agent_max_duration_seconds,
+        )
+    except TimeoutError:
+        return AskResult(
+            question=question,
+            answer="(agent exceeded duration cap)",
+            tool_calls=trace,
+            turns_used=len(trace),
+            stop_reason="timeout",
+        )
+    return result
+
+
+async def _loop(  # noqa: PLR0913 (params are all required context)
+    client: anthropic.AsyncAnthropic,
+    settings: Settings,
+    snapshot: YnabSnapshot,
+    system: str,
+    messages: list[dict[str, Any]],
+    tool_specs: list[dict[str, Any]],
+    trace: list[ToolCall],
+    question: str,
+) -> AskResult:
+    tool_call_count = 0
+    for turn in range(settings.agent_max_tool_calls + 1):
         response = await client.messages.create(
             model=settings.anthropic_model,
             max_tokens=4096,
@@ -114,7 +127,6 @@ async def run_agent(
             )
 
         if response.stop_reason != "tool_use":
-            logger.warning("unexpected stop reason: %s", response.stop_reason)
             return AskResult(
                 question=question,
                 answer=_extract_text(response) or "(no text returned)",
@@ -123,7 +135,6 @@ async def run_agent(
                 stop_reason=str(response.stop_reason or "unknown"),
             )
 
-        # Echo the assistant turn back in history so Claude has full context next loop.
         messages.append({"role": "assistant", "content": response.content})
 
         tool_results: list[dict[str, Any]] = []
@@ -132,6 +143,15 @@ async def run_agent(
                 continue
             tool_input = cast(dict[str, Any], block.input)
             tool = TOOL_REGISTRY.get(block.name)
+            tool_call_count += 1
+            if tool_call_count > settings.agent_max_tool_calls:
+                return AskResult(
+                    question=question,
+                    answer="(agent exceeded tool-call cap)",
+                    tool_calls=trace,
+                    turns_used=turn + 1,
+                    stop_reason="max_tool_calls",
+                )
             if tool is None:
                 err = f"unknown tool: {block.name}"
                 trace.append(ToolCall(tool=block.name, input=tool_input, output=err, is_error=True))
@@ -146,7 +166,7 @@ async def run_agent(
                 continue
             try:
                 validated = tool.input_model.model_validate(tool_input)
-                output = await tool.function(session, validated)
+                output = await tool.function(snapshot, validated)
                 trace.append(ToolCall(tool=block.name, input=tool_input, output=output))
                 tool_results.append(
                     {
@@ -158,7 +178,6 @@ async def run_agent(
             except Exception as exc:  # noqa: BLE001
                 err = f"{type(exc).__name__}: {exc}"
                 logger.exception("tool %s failed", block.name)
-                counters.tool_errors += 1
                 trace.append(ToolCall(tool=block.name, input=tool_input, output=err, is_error=True))
                 tool_results.append(
                     {
@@ -175,6 +194,6 @@ async def run_agent(
         question=question,
         answer="(reached max turns without final answer)",
         tool_calls=trace,
-        turns_used=settings.ask_max_turns,
-        stop_reason="max_turns",
+        turns_used=settings.agent_max_tool_calls,
+        stop_reason="max_tool_calls",
     )

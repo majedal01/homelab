@@ -1,11 +1,7 @@
 """Goal Trajectory generator.
 
-For each YNAB category with a non-zero goal target that is not yet 100%
-complete, project completion using the goal fields synced from YNAB:
-`goal_target_cents`, `goal_target_month`, `goal_percentage_complete`,
-`goal_overall_left_cents`, `goal_months_to_budget`. The frontend uses the
-projection plus `current_monthly_contribution_cents` to drive the
-acceleration slider client-side.
+For each Category with a non-zero goal target that is not yet 100% complete,
+project completion using YNAB's goal fields surfaced in the snapshot.
 """
 
 from __future__ import annotations
@@ -14,22 +10,17 @@ from collections.abc import Sequence
 from datetime import date
 from typing import ClassVar
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import SecretStr
 
-from app.config import Settings
 from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
 from app.insights.llm import enhance_copy
 from app.insights.schemas import GoalTrajectoryData
-from app.models import Category
+from app.snapshot.models import YnabSnapshot
 
 
 def _add_months(start: date, months: int) -> date:
-    """Add `months` to `start`, clamping the day to the target month's length.
-    Avoids dateutil for one helper; we don't deal with sub-month precision."""
     year = start.year + (start.month - 1 + months) // 12
     month = (start.month - 1 + months) % 12 + 1
-    # Pick day 1 of the target month — projections don't need day precision.
     return date(year, month, 1)
 
 
@@ -40,17 +31,15 @@ class GoalTrajectoryGenerator(InsightGenerator):
 
     async def run(
         self,
-        session: AsyncSession,
-        settings: Settings,
-        budget_id: str,
+        snapshot: YnabSnapshot,
+        anthropic_key: SecretStr | None,
     ) -> Sequence[GeneratedInsight]:
         today = date.today()
-        stmt = select(Category).where(
-            Category.budget_id == budget_id,
-            Category.goal_target_cents.is_not(None),
-            Category.hidden.is_(False),
-        )
-        categories = (await session.execute(stmt)).scalars().all()
+        categories = [
+            c
+            for c in snapshot.categories
+            if c.goal_target_cents is not None and not c.hidden
+        ]
 
         outputs: list[GeneratedInsight] = []
         for cat in categories:
@@ -111,7 +100,7 @@ class GoalTrajectoryGenerator(InsightGenerator):
             )
 
             enhanced = await enhance_copy(
-                settings=settings,
+                anthropic_key=anthropic_key,
                 fallback_title=fallback_title,
                 fallback_summary=fallback_summary,
                 card_type=self.card_type,
