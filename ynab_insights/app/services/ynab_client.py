@@ -206,3 +206,136 @@ def milliunits_to_cents(milliunits: int) -> int:
     """Convert YNAB milliunits to cents. YNAB stores amounts at 1/1000 precision;
     cents is 1/100. Integer division by 10 is exact for valid YNAB values."""
     return milliunits // 10
+
+
+async def fetch_snapshot(token: str, budget_id: str) -> YnabSnapshot:
+    """One full snapshot of one budget. Used by the session layer (v2.5).
+
+    Pulls accounts, categories, payees, and transactions sequentially.
+    Splits are flattened into top-level transactions with the parent's
+    date and account. References to YNAB entities that no longer exist
+    in the current /categories or /payees responses are nulled out so
+    the snapshot stays self-consistent.
+    """
+    from datetime import UTC, datetime
+
+    from app.snapshot.models import (
+        Account as SnapAccount,
+    )
+    from app.snapshot.models import (
+        Category as SnapCategory,
+    )
+    from app.snapshot.models import (
+        Payee as SnapPayee,
+    )
+    from app.snapshot.models import (
+        Transaction as SnapTransaction,
+    )
+    from app.snapshot.models import (
+        YnabSnapshot,
+    )
+
+    async with YNABClient(token) as client:
+        budgets = await client.list_budgets()
+        budget = next((b for b in budgets if b.id == budget_id), None)
+        if budget is None:
+            raise ValueError(f"budget {budget_id!r} not on this account")
+
+        accounts = await client.list_accounts(budget_id)
+        categories = await client.list_categories(budget_id)
+        payees = await client.list_payees(budget_id)
+        transactions = await client.list_transactions(budget_id)
+
+    snap_accounts = [
+        SnapAccount(
+            id=a.id,
+            name=a.name,
+            type=a.type,
+            on_budget=a.on_budget,
+            closed=a.closed,
+            balance_cents=milliunits_to_cents(a.balance),
+        )
+        for a in accounts
+    ]
+    snap_categories = [
+        SnapCategory(
+            id=c.id,
+            name=c.name,
+            category_group_id=c.category_group_id,
+            hidden=c.hidden,
+            goal_type=c.goal_type,
+            goal_target_cents=milliunits_to_cents(c.goal_target) if c.goal_target else None,
+            goal_target_month=c.goal_target_month,
+            goal_percentage_complete=c.goal_percentage_complete,
+            goal_overall_left_cents=(
+                milliunits_to_cents(c.goal_overall_left) if c.goal_overall_left else None
+            ),
+            goal_months_to_budget=c.goal_months_to_budget,
+        )
+        for c in categories
+    ]
+    snap_payees = [
+        SnapPayee(id=p.id, name=p.name, transfer_account_id=p.transfer_account_id)
+        for p in payees
+    ]
+
+    known_category_ids = {c.id for c in snap_categories}
+    known_payee_ids = {p.id for p in snap_payees}
+    snap_transactions: list[SnapTransaction] = []
+    for txn in transactions:
+        if txn.subtransactions:
+            # Split transaction: emit one snapshot row per leg, inheriting the
+            # parent's date and account. The parent itself is not surfaced
+            # (its amount equals the sum of legs).
+            for sub in txn.subtransactions:
+                cat_id = sub.category_id if sub.category_id in known_category_ids else None
+                payee_id = sub.payee_id if sub.payee_id in known_payee_ids else None
+                snap_transactions.append(
+                    SnapTransaction(
+                        id=sub.id,
+                        date=txn.date,
+                        amount_cents=milliunits_to_cents(sub.amount),
+                        account_id=txn.account_id,
+                        payee_id=payee_id,
+                        category_id=cat_id,
+                        memo=sub.memo,
+                    )
+                )
+        else:
+            cat_id = txn.category_id if txn.category_id in known_category_ids else None
+            payee_id = txn.payee_id if txn.payee_id in known_payee_ids else None
+            snap_transactions.append(
+                SnapTransaction(
+                    id=txn.id,
+                    date=txn.date,
+                    amount_cents=milliunits_to_cents(txn.amount),
+                    account_id=txn.account_id,
+                    payee_id=payee_id,
+                    category_id=cat_id,
+                    memo=txn.memo,
+                )
+            )
+
+    # Newest-first sort. Generators assume this ordering for cheap "last N"
+    # slices without re-sorting.
+    snap_transactions.sort(key=lambda t: (t.date, t.id), reverse=True)
+
+    currency = "USD"
+    if budget.currency_format and "iso_code" in budget.currency_format:
+        currency = str(budget.currency_format["iso_code"])
+
+    return YnabSnapshot(
+        budget_id=budget_id,
+        budget_name=budget.name,
+        currency_iso=currency,
+        fetched_at=datetime.now(UTC),
+        accounts=snap_accounts,
+        categories=snap_categories,
+        payees=snap_payees,
+        transactions=snap_transactions,
+    )
+
+
+# Re-exported as a forward ref so module imports stay light.
+if False:  # pragma: no cover - type-only
+    from app.snapshot.models import YnabSnapshot  # noqa: F401

@@ -17,7 +17,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, SecretStr
 
-from app.services.ynab_client import YNABClient
+from app.services.ynab_client import YNABClient, fetch_snapshot
 from app.session.middleware import CurrentSessionDep
 from app.session.models import SessionPublic, UserSession
 from app.session.store import COOKIE_NAME, SessionStore, get_session_store, new_sid
@@ -201,9 +201,19 @@ async def select_budget(
     if match is None:
         raise _bad("budget_not_found", "That budget is not on this YNAB account.", 404)
 
+    try:
+        snapshot = await fetch_snapshot(token, match.id)
+    except httpx.HTTPError as e:
+        logger.info("snapshot fetch failed: %s", type(e).__name__)
+        raise _bad("ynab_unavailable", "Couldn't pull your budget. Try again.", 502) from e
+
     session.budget_id = match.id
     session.budget_name = match.name
+    session.snapshot = snapshot
     session.last_synced_at = datetime.now(UTC)
+    # Insights from the prior budget are no longer relevant; clear them so the
+    # feed reflects the new scope on next /api/insights call.
+    session.insights = []
     return _to_public(session, store)
 
 
@@ -214,14 +224,22 @@ async def get_session(session: CurrentSessionDep, store: StoreDep) -> SessionPub
 
 @router.post("/refresh", response_model=SessionPublic)
 async def refresh_session(session: CurrentSessionDep, store: StoreDep) -> SessionPublic:
-    """Re-fetch the YNAB snapshot for the active budget.
-
-    Snapshot fetching wires up in commit 3; for now this bumps last_synced_at
-    so the frontend's refresh button has a working endpoint to call.
-    """
+    """Re-fetch the YNAB snapshot for the active budget."""
     if session.budget_id is None:
         raise _bad("no_budget_selected", "Pick a budget before refreshing.", 409)
+    try:
+        snapshot = await fetch_snapshot(
+            session.ynab_token.get_secret_value(),
+            session.budget_id,
+        )
+    except httpx.HTTPError as e:
+        logger.info("snapshot refresh failed: %s", type(e).__name__)
+        raise _bad("ynab_unavailable", "Couldn't reach YNAB. Try again.", 502) from e
+    session.snapshot = snapshot
     session.last_synced_at = datetime.now(UTC)
+    # Invalidate cached insights so the next /api/insights call regenerates
+    # against the new data.
+    session.insights = []
     return _to_public(session, store)
 
 
