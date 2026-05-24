@@ -79,6 +79,7 @@ class SubscriptionAuditGenerator(InsightGenerator):
         self,
         snapshot: YnabSnapshot,
         anthropic_key: SecretStr | None,
+        anthropic_model: str | None = None,
     ) -> Sequence[GeneratedInsight]:
         today = date.today()
         start = today - timedelta(days=LOOKBACK_DAYS)
@@ -138,11 +139,14 @@ class SubscriptionAuditGenerator(InsightGenerator):
 
         outputs: list[GeneratedInsight] = []
         for cluster in clusters:
-            outputs.append(await self._build_insight(cluster, anthropic_key))
+            outputs.append(await self._build_insight(cluster, anthropic_key, anthropic_model))
         return outputs
 
     async def _build_insight(
-        self, cluster: _Cluster, anthropic_key: SecretStr | None
+        self,
+        cluster: _Cluster,
+        anthropic_key: SecretStr | None,
+        anthropic_model: str | None,
     ) -> GeneratedInsight:
         absolute_cents = -cluster.amount_cents
         monthly_cost_cents = round(absolute_cents * _monthly_factor(cluster.cadence))
@@ -171,6 +175,7 @@ class SubscriptionAuditGenerator(InsightGenerator):
 
         enhanced = await enhance_copy(
             anthropic_key=anthropic_key,
+            model=anthropic_model,
             fallback_title=fallback_title,
             fallback_summary=fallback_summary,
             card_type=self.card_type,

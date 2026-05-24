@@ -58,6 +58,7 @@ async def stream_agent(
     settings: Settings,
     question: str,
     history: list[dict[str, Any]],
+    anthropic_model: str | None = None,
 ) -> AsyncIterator[str]:
     """Yield SSE-formatted strings for the agent turn. Enforces guardrails."""
     if len(question) > settings.agent_input_max_chars:
@@ -67,6 +68,7 @@ async def stream_agent(
         )
         return
 
+    model = anthropic_model or settings.anthropic_model
     client = anthropic.AsyncAnthropic(api_key=anthropic_key.get_secret_value())
     tool_specs = [t.to_anthropic_spec() for t in TOOL_REGISTRY.values()]
     system = _build_system_prompt(_date.today().isoformat(), snapshot)
@@ -88,7 +90,7 @@ async def stream_agent(
             tool_use_buffers: dict[int, dict[str, Any]] = {}
 
             async with client.messages.stream(
-                model=settings.anthropic_model,
+                model=model,
                 max_tokens=4096,
                 system=system,
                 tools=tool_specs,  # type: ignore[arg-type]

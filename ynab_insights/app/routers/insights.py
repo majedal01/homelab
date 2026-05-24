@@ -127,6 +127,7 @@ async def generate(
             next_id=next_id,
             next_run_id=next_run_id,
             existing=by_key,
+            anthropic_model=session.anthropic_model,
         )
         for ins in produced:
             by_key[(ins.budget_id, ins.dedup_key)] = ins

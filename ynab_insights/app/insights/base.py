@@ -94,8 +94,13 @@ class InsightGenerator(ABC):
         self,
         snapshot: YnabSnapshot,
         anthropic_key: SecretStr | None,
+        anthropic_model: str | None = None,
     ) -> Sequence[GeneratedInsight]:
-        """Detect insights from the in-memory snapshot. Side-effect-free."""
+        """Detect insights from the in-memory snapshot. Side-effect-free.
+
+        `anthropic_model` is the user's per-session choice; None means
+        fall through to whatever `enhance_copy`'s default is.
+        """
 
 
 _REGISTRY: dict[str, type[InsightGenerator]] = {}
@@ -127,6 +132,7 @@ async def execute_generator(
     next_id: int,
     next_run_id: int,
     existing: dict[tuple[str, str], Insight] | None = None,
+    anthropic_model: str | None = None,
 ) -> tuple[RunOutcome, list[Insight], RunRecord]:
     """Run one generator. Returns (outcome, updated insight list, run record).
 
@@ -147,7 +153,7 @@ async def execute_generator(
     by_key = existing or {}
 
     try:
-        outputs = await generator_cls().run(snapshot, anthropic_key)
+        outputs = await generator_cls().run(snapshot, anthropic_key, anthropic_model)
         for output in outputs:
             key = (snapshot.budget_id, output.dedup_key)
             now = datetime.now(UTC)

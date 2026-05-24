@@ -20,4 +20,5 @@ services:
       APP_ENV: stage
       APP_VERSION: ${APP_VERSION:-unknown}
       SESSION_SECRET_KEY: ${SESSION_SECRET_KEY:?SESSION_SECRET_KEY is required}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
     restart: unless-stopped

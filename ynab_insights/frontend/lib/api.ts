@@ -12,6 +12,10 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import type { SessionPublic } from "./api-types";
+
+export type { SessionPublic };
+
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export class SessionExpiredError extends Error {
@@ -90,17 +94,6 @@ export async function requireSession(): Promise<SessionPublic> {
     }
     throw err;
   }
-}
-
-/** Pydantic SessionPublic mirror. */
-export interface SessionPublic {
-  sid: string;
-  budget_id: string | null;
-  budget_name: string | null;
-  created_at: string;
-  last_active_at: string;
-  last_synced_at: string | null;
-  expires_at: string;
 }
 
 /** Build a query string from an object of optional params, dropping undefined/null. */

@@ -37,6 +37,7 @@ class CashflowForecastGenerator(InsightGenerator):
         self,
         snapshot: YnabSnapshot,
         anthropic_key: SecretStr | None,
+        anthropic_model: str | None = None,
     ) -> Sequence[GeneratedInsight]:
         today = date.today()
         start = today - timedelta(days=LOOKBACK_DAYS)
@@ -107,6 +108,7 @@ class CashflowForecastGenerator(InsightGenerator):
 
         enhanced = await enhance_copy(
             anthropic_key=anthropic_key,
+            model=anthropic_model,
             fallback_title=fallback_title,
             fallback_summary=fallback_summary,
             card_type=self.card_type,

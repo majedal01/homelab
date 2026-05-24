@@ -25,11 +25,32 @@ export interface SessionPublic {
   sid: string;
   budget_id: string | null;
   budget_name: string | null;
+  anthropic_model: string | null;
   created_at: string;
   last_active_at: string;
   last_synced_at: string | null;
   expires_at: string;
 }
+
+export const ANTHROPIC_MODELS: readonly { value: string; label: string; tagline: string }[] = [
+  {
+    value: "claude-haiku-4-5-20251001",
+    label: "Haiku 4.5",
+    tagline: "Fast and inexpensive. Good default.",
+  },
+  {
+    value: "claude-sonnet-4-6",
+    label: "Sonnet 4.6",
+    tagline: "Balanced for the LLM-narrated cards.",
+  },
+  {
+    value: "claude-opus-4-7",
+    label: "Opus 4.7",
+    tagline: "Most capable. Slower and pricier.",
+  },
+];
+
+export const DEFAULT_ANTHROPIC_MODEL = ANTHROPIC_MODELS[0].value;
 
 export interface SessionErrorBody {
   error: string;

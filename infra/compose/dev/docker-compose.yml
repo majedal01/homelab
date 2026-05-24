@@ -31,6 +31,10 @@ services:
       APP_ENV: stage
       APP_VERSION: dev
       SESSION_SECRET_KEY: ${SESSION_SECRET_KEY:-dev-only-change-me}
+      # Default model when the user doesn't pick one on the welcome screen.
+      # Override per env without rebuilding. Valid values: claude-haiku-4-5-20251001,
+      # claude-sonnet-4-6, claude-opus-4-7.
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
     volumes:
       - ../../../ynab_insights:/service
 

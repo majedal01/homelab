@@ -28,6 +28,9 @@ class UserSession(BaseModel):
     sid: str
     ynab_token: SecretStr
     anthropic_key: SecretStr
+    # User's per-session model pick. None means "use whatever the Settings
+    # default is" — keeps tests + existing sessions backward compatible.
+    anthropic_model: str | None = None
     budget_id: str | None = None
     budget_name: str | None = None
     snapshot: YnabSnapshot | None = None
@@ -48,6 +51,7 @@ class SessionPublic(BaseModel):
     sid: str
     budget_id: str | None
     budget_name: str | None
+    anthropic_model: str | None
     created_at: datetime
     last_active_at: datetime
     last_synced_at: datetime | None
