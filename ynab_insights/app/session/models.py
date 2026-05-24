@@ -9,14 +9,11 @@ default; explicit access goes through `.get_secret_value()`.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-if TYPE_CHECKING:
-    from app.snapshot.models import YnabSnapshot
-
-    GeneratedInsight = Any  # placeholder until app.insights.base re-exports it
+from app.snapshot.models import YnabSnapshot
 
 
 def _utcnow() -> datetime:
@@ -55,3 +52,11 @@ class SessionPublic(BaseModel):
     last_active_at: datetime
     last_synced_at: datetime | None
     expires_at: datetime
+
+
+# Resolve forward refs at import time so Pydantic can build the model
+# even with `from __future__ import annotations` in effect. Without this,
+# FastAPI's `get_type_hints()` raises across the whole module and routes
+# defined elsewhere misclassify their parameters (e.g. starlette.Request
+# gets treated as a request body, returning 422).
+UserSession.model_rebuild()
