@@ -1,4 +1,9 @@
-# YNAB Insights, v2.5 plan
+# YNAB Insights, v2.5 architecture
+
+> Originally written as a plan; updated below to reflect the as-built. The
+> structure (session model, snapshot layer, dismissal pattern, rate limits,
+> validation flow) survived intact. Variances from the original plan are
+> noted inline.
 
 Multi-tenant, zero-persistence refactor. Every architectural choice below exists to make one claim true: **no user data is ever written to disk on the server**. Tokens, YNAB data, and generated insights live in process memory, scoped to a session, evicted on TTL.
 
@@ -186,25 +191,42 @@ Added:
 - Six card types still surface against a real budget after the migration.
 - CI green; stage deploy succeeds; prod deploy succeeds.
 
-## Commit order (mirrors scope)
+## As-built notes (the 18-commit plan vs reality)
 
-1. `feat(session): TTLCache-backed session store + cookie middleware + tests`
-2. `feat(session): token validation + POST/DELETE/GET /api/session + refresh`
-3. `feat(snapshot): YnabSnapshot Pydantic + ynab_client.fetch_snapshot`
-4. `refactor(insights): subscription_audit on YnabSnapshot`
-5. `refactor(insights): spending_anomaly on YnabSnapshot`
-6. `refactor(insights): cashflow_forecast on YnabSnapshot`
-7. `refactor(insights): goal_trajectory on YnabSnapshot`
-8. `refactor(insights): category_drift on YnabSnapshot`
-9. `refactor(insights): year_in_money on YnabSnapshot`
-10. `refactor(api): /api/insights/* + /api/ask use session snapshot`
-11. `refactor(agent): per-request Anthropic key + loop guardrails`
-12. `feat(middleware): per-session rate limits + input caps`
-13. `chore: remove APScheduler, db, models, migrations, postgres compose, env vars`
-14. `feat(frontend): onboarding card + token entry + validation flow`
-15. `feat(frontend): session expiry handling + localStorage dismissals`
-16. `feat(frontend): settings page (refresh, end, expiry)`
-17. `copy: privacy-first messaging across onboarding, settings, footer`
-18. `docs: rewrite ynab-insights.md + READMEs for v2.5 architecture`
+The 18-commit per-generator plan turned into 7 commits because the
+SQLAlchemy removal and the generator refactor are mutually dependent;
+leaving either half in place broke the build. Final shape:
 
-One PR into main when complete.
+1. `docs(v2.5): planning doc`
+2. `feat(session): TTLCache-backed session store + cookie middleware`
+3. `feat(session): token validation + POST/DELETE/GET /api/session + refresh`
+4. `feat(snapshot): YnabSnapshot + ynab_client.fetch_snapshot`
+5. `feat(v2.5): zero-persistence backend` (the six generator refactors,
+   the new orchestrator, the rate-limit middleware, the per-request
+   Anthropic key, the deletion of every SQLAlchemy-coupled module, all
+   in one because they can't compile separately)
+6. `feat(frontend): v2.5 zero-persistence UI`
+7. `docs(v2.5): READMEs and DESIGN.md for the as-built` (this commit)
+
+One PR into main.
+
+### Variances from the original plan
+
+- **Per-generator commits collapsed.** The orchestrator change is
+  load-bearing for the first generator refactor; landing them
+  separately would have left commits 4-9 broken between application
+  of each. Bundled into the big "backend" commit.
+- **Dismissed_at preserved in the `Insight` model.** Even though
+  dismissals are client-side now, the field stayed on the in-memory
+  shape for API compatibility with the existing card components.
+  Always `None` in v2.5.
+- **Agent tools refactored, not removed.** The plan was vague on
+  whether agent tools survive; they do, but with `budget_id`
+  parameters dropped (snapshot is one budget) and DB calls replaced
+  with snapshot lookups.
+- **Browser-facing proxy is a catch-all.** Instead of per-route Next
+  handlers, `app/api/[...path]/route.ts` proxies anything not
+  otherwise routed. Streaming-aware `/ask` keeps its own handler.
+- **`requireSession()` gate.** Each protected RSC page calls a single
+  helper that fetches `/api/session`; on 401 it redirects to
+  `/welcome?next=<path>`. Cleaner than per-page boilerplate.
