@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Inbox } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,8 @@ export function InsightFeed({
   offset: number;
   hasMore: boolean;
 }) {
+  const searchParams = useSearchParams();
+  const activeFilter = searchParams.get("card_type");
   // Hydrate dismissals once on mount; subsequent dismisses tell us about
   // themselves via the bumpVersion callback.
   const [dismissed, setDismissed] = React.useState<Set<string> | null>(null);
@@ -37,15 +40,27 @@ export function InsightFeed({
     dismissed === null ? insights : insights.filter((i) => !dismissed.has(i.dedup_key));
 
   if (visible.length === 0 && offset === 0) {
+    const filterLabel = filterDisplayName(activeFilter);
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border bg-card/60 backdrop-blur p-12 text-center">
         <div className="rounded-full bg-muted p-3 text-muted-foreground">
           <Inbox className="h-5 w-5" />
         </div>
-        <h3 className="text-sm font-medium">Nothing yet.</h3>
-        <p className="max-w-sm text-xs text-muted-foreground">
-          Hit Regenerate to surface insights from your latest YNAB data.
-        </p>
+        {filterLabel ? (
+          <>
+            <h3 className="text-sm font-medium">No {filterLabel} insights right now.</h3>
+            <p className="max-w-sm text-xs text-muted-foreground">
+              Switch to All above to see what else is here.
+            </p>
+          </>
+        ) : (
+          <>
+            <h3 className="text-sm font-medium">Nothing yet.</h3>
+            <p className="max-w-sm text-xs text-muted-foreground">
+              Hit Regenerate to surface insights from your latest YNAB data.
+            </p>
+          </>
+        )}
       </div>
     );
   }
@@ -85,4 +100,23 @@ export function InsightFeed({
 function prevOffset(current: number): string {
   const next = Math.max(0, current - PAGE_SIZE);
   return next === 0 ? "" : `?offset=${next}`;
+}
+
+function filterDisplayName(cardType: string | null): string | null {
+  switch (cardType) {
+    case "subscription_audit":
+      return "Subscription";
+    case "spending_anomaly":
+      return "Anomaly";
+    case "cashflow_forecast":
+      return "Forecast";
+    case "goal_trajectory":
+      return "Goal";
+    case "category_drift":
+      return "Drift";
+    case "year_in_money":
+      return "Year-in-money";
+    default:
+      return null;
+  }
 }
