@@ -1,6 +1,6 @@
 # homelab
 
-A personal homelab platform built to practice enterprise software engineering patterns end to end on owned hardware.
+A personal homelab platform for practicing enterprise software engineering patterns end to end on owned hardware.
 
 ## Architecture
 
@@ -36,8 +36,8 @@ graph TD
 ## Pipeline
 
 1. Feature branch off `main`, push, open a PR. [CI](.github/workflows/ci.yml) runs Ruff, mypy strict, and pytest on every PR.
-2. Merge into `main`. This auto-fires [the stage deploy](.github/workflows/deploy-stage.yml): build, push to ghcr.io, scp + ssh deploy to the VM over Tailscale, smoke-check `/health` on :8001. Stage is always whatever main is.
-3. Promote to prod by manually triggering [the prod deploy](.github/workflows/deploy-prod.yml) from the Actions UI. Same flow as stage, deploys to :8002. The manual step is the intentional human gate before prod.
+2. Merge into `main`. [Stage deploy](.github/workflows/deploy-stage.yml) fires automatically: build, push to ghcr.io, scp + ssh deploy over Tailscale, smoke-check `/health` on :8001. Stage is always whatever main is.
+3. Promote to prod via manual [prod deploy](.github/workflows/deploy-prod.yml) from the Actions UI. Same flow, deploys to :8002. The manual step is the intentional human gate before prod.
 
 Full design in [`docs/deployment.md`](docs/deployment.md).
 
@@ -51,14 +51,13 @@ An AI financial coach that lives alongside YNAB. Pulls data from YNAB into a loc
 
 - Source: [`ynab_insights/`](ynab_insights/) (backend + frontend live together)
 - Design notes: [`ynab_insights/DESIGN.md`](ynab_insights/DESIGN.md)
-- Deployed URL: TBD
 
 ## Skills demonstrated
 
-- Built a strict CI pipeline (Ruff lint and format, mypy strict, pytest) gating every PR; see [`ci.yml`](.github/workflows/ci.yml).
-- Wired two-environment CD: stage deploys automatically on push, prod deploys via manual `workflow_dispatch` as an intentional gate. Both build versioned Docker images, push to ghcr.io, and roll the running container over SSH with a `/health` smoke check. See [`deploy-stage.yml`](.github/workflows/deploy-stage.yml) and [`deploy-prod.yml`](.github/workflows/deploy-prod.yml).
-- Implemented zero-trust remote access by joining ephemeral CI runners to a Tailscale mesh with tag-based ACLs, so the VM never needs a public IP.
-- Separated stage and prod into isolated compose stacks on the same host (own Postgres volume, own host port), so a stage outage cannot reach prod data.
+- Strict CI pipeline (Ruff lint and format, mypy strict, pytest) gating every PR. See [`ci.yml`](.github/workflows/ci.yml).
+- Two-environment CD: stage deploys automatically on merge, prod deploys via manual `workflow_dispatch` as an intentional gate. Both build versioned Docker images, push to ghcr.io, and roll the running container over SSH with a `/health` smoke check. See [`deploy-stage.yml`](.github/workflows/deploy-stage.yml) and [`deploy-prod.yml`](.github/workflows/deploy-prod.yml).
+- Zero-trust remote access: ephemeral CI runners join a Tailscale mesh with tag-based ACLs, so the VM never needs a public IP.
+- Stage and prod separated into isolated Compose stacks on the same host. Own Postgres volume, own host port. A stage outage can't reach prod data.
 
 ## Platform roadmap
 
@@ -70,18 +69,11 @@ Application-specific roadmaps live in each app's own folder.
 
 ## Repo structure
 
-Monorepo. Platform-wide concerns (infra, CD, cross-cutting docs) live at the
-root; everything specific to a hosted app lives inside that app's folder.
+Monorepo. Platform-wide concerns (infra, CD, cross-cutting docs) live at the root; everything specific to a hosted app lives inside that app's folder.
 
-- [`ynab_insights/`](ynab_insights/): YNAB Insights app — FastAPI backend
-  ([`ynab_insights/app/`](ynab_insights/app/)), Next.js frontend
-  ([`ynab_insights/frontend/`](ynab_insights/frontend/)), tests, Dockerfiles,
-  app-specific design notes ([`DESIGN.md`](ynab_insights/DESIGN.md)).
-- [`infra/compose/`](infra/compose/): per-environment Docker Compose stacks
-  (`dev`, `stage`, `prod`). Platform-level — knows how to assemble app
-  containers into a deployable stack.
-- [`docs/`](docs/): platform docs ([`deployment.md`](docs/deployment.md)).
-  App-specific design notes live in their app folder.
+- [`ynab_insights/`](ynab_insights/): YNAB Insights app. FastAPI backend ([`ynab_insights/app/`](ynab_insights/app/)), Next.js frontend ([`ynab_insights/frontend/`](ynab_insights/frontend/)), tests, Dockerfiles, app-specific design notes ([`DESIGN.md`](ynab_insights/DESIGN.md)).
+- [`infra/compose/`](infra/compose/): per-environment Docker Compose stacks (`dev`, `stage`, `prod`). Platform-level: knows how to assemble app containers into a deployable stack.
+- [`docs/`](docs/): platform docs ([`deployment.md`](docs/deployment.md)). App-specific design notes live in their app folder.
 - [`.github/workflows/`](.github/workflows/): CI and CD pipelines.
 
 ## Local development
@@ -90,9 +82,12 @@ root; everything specific to a hosted app lives inside that app's folder.
 git clone git@github.com:majedal01/homelab.git
 cd homelab
 cp infra/compose/dev/.env.example infra/compose/dev/.env
-# fill in optional YNAB_TOKEN, ANTHROPIC_API_KEY if you want sync/ask working
+# Fill in optional YNAB_TOKEN, ANTHROPIC_API_KEY if you want sync/ask working.
 docker compose -f infra/compose/dev/docker-compose.yml up
 ```
 
-Frontend at `http://localhost:3000`, FastAPI at `http://localhost:8000`. Both
-hot-reload on source changes. Deployment details in [`docs/deployment.md`](docs/deployment.md).
+Frontend at `http://localhost:3000`, FastAPI at `http://localhost:8000`. Both hot-reload on source changes. Deployment details in [`docs/deployment.md`](docs/deployment.md).
+
+## Built with AI assistance
+
+Code in this repo was written with Claude (Anthropic) as a paired collaborator. The architecture, design decisions, and review of every change were mine; Claude accelerated boilerplate, surfaced edge cases, and drafted prose I could prune. Treating AI as a high-bandwidth pair, with the same review bar as any other contributor, is itself a skill this project is meant to demonstrate.
