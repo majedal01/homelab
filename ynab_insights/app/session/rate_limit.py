@@ -32,10 +32,19 @@ class _Rule:
 
 
 def _rules(settings: Settings) -> dict[tuple[str, str], _Rule]:
-    """Map (method, prefix) -> rule. Most-specific prefix wins."""
+    """Map (method, prefix) -> rule. Most-specific prefix wins, so deeper
+    paths (like /api/session/demo) must come before their parent prefix
+    (/api/session). `_match` returns the first matching rule."""
     h = 3600
     m = 60
     return {
+        # Public demo endpoint: per-IP. Capped tighter than authed routes
+        # because the visitor has no session cookie yet.
+        ("POST", "/api/session/demo"): _Rule(
+            "demo_session_create",
+            settings.demo_session_rate_limit_per_ip_per_hour,
+            h,
+        ),
         ("POST", "/api/session/budget"): _Rule(
             "snapshot", settings.rate_limit_snapshot_per_hour, h
         ),
