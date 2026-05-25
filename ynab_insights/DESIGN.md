@@ -197,6 +197,7 @@ Per-session token-bucket middleware (`app/session/rate_limit.py`):
 
 | Endpoint group | Limit | Bucket |
 | --- | --- | --- |
+| `POST /api/session/demo` | 10/hr | IP |
 | `POST /api/session` | 5/hr | IP |
 | `POST /api/session/budget` + `/refresh` | 10/hr | session |
 | `POST /api/insights/generate` | 10/hr | session |
@@ -228,14 +229,82 @@ Worst case per session per hour: 20 asks * 20 tool calls * ~3k tokens
   `apiFetch` and triggers a `next/navigation.redirect()` to
   `/welcome?next=<path>`.
 
+## Provider abstraction (v2.6d)
+
+`app/llm/` exposes an `LlmProvider` ABC plus per-vendor concrete classes
+(`AnthropicProvider`, `OpenAIProvider`). The SSE wire format on `/ask`
+doesn't depend on the provider; each provider normalizes its native
+events into one of: `TokenEvent`, `ToolUseEvent`, `ToolResultEvent`,
+`DoneEvent`, `ErrorEvent`. The agent loop just yields events to SSE.
+
+Routing is by key prefix in `app/llm/detect.py`: `sk-ant-…` → Anthropic,
+`sk-(proj-)?…` → OpenAI. Anthropic is checked first so the looser
+OpenAI regex doesn't eat its keys. Per-provider model allow-lists
+guard against typo'd or removed model IDs reaching the SDK.
+
+Each provider owns the full tool-use loop (not just one turn). Callers
+supply a `tool_dispatcher` callback that maps `(tool_name, input)` to
+`(output, is_error)`; the provider pushes results back in its native
+message shape (Anthropic `tool_result` content blocks vs OpenAI
+`role:"tool"` messages).
+
+## Demo mode (v2.6d)
+
+`app/demo/` builds a deterministic `YnabSnapshot` for ~14 months of
+fictional activity and one hand-written insight per card type. `POST
+/api/session/demo` mints a real session with `is_demo=True` and the
+pre-loaded data. No tokens, no upstream calls.
+
+Behavior gates on `session.is_demo`:
+- `POST /ask` → 403 with `{"error":"demo_mode_ask_disabled"}`.
+- `POST /api/insights/generate` → no-op, returns `{"run_ids":[]}`.
+- `POST /api/session/refresh` → just bumps `last_active_at`.
+
+The deterministic snapshot doubles as fixture data: anyone reading the
+codebase can `build_demo_snapshot()` in a test and exercise generator
+logic without mocking YNAB.
+
+## Public release defensive layers (v2.6e)
+
+Three layers in front of the public deploy at https://ynab.majed.fyi.
+All off by default; on for stage + prod via env injection in the deploy
+workflows.
+
+**Demo rate limit.** `POST /api/session/demo` is the only pre-auth
+endpoint that mints state; cap at 10/hr per IP, configurable via
+`DEMO_SESSION_RATE_LIMIT_PER_IP_PER_HOUR`. Same `_Rule` table as the
+rest; scope `demo_session_create`.
+
+**Proxy-header guard.** The Cloudflare Tunnel sets
+`X-Forwarded-Proto: https`; the session cookie's Secure flag depends
+on it. When `REQUIRE_PROXY_HEADERS=true`, `ProxyHeaderMiddleware` logs
+one warning per minute per path if a request arrives without the
+header. Does not reject. Catches tunnel misconfigs without breaking
+the user-facing surface.
+
+**Metrics token gate.** `GET /metrics` returns Prometheus text
+exposition when `X-Admin-Token` matches `METRICS_ADMIN_TOKEN`.
+**Returns 404 (not 401) when the token is wrong or the env var is
+unset entirely** — scanners get the same response either way, so the
+endpoint is indistinguishable from a non-existent route. Counters and
+gauges cover sessions created/evicted, rate-limit hits, provider
+validation failures, agent guardrail trips, insights generated, and
+demo-session-active gauge. See `app/observability.py`.
+
 ## Deployment
 
 Branch-to-env: `main` auto-deploys stage; prod redeploys on manual
 `workflow_dispatch`. Builds two images (backend + frontend), pushes to
 ghcr.io, scp the compose file to the VM over Tailscale, runs
-`docker compose pull && up -d`, smoke-checks `/health`.
+`docker compose pull && up -d --remove-orphans`, smoke-checks `/health`.
 
-The only required env var per stack is `SESSION_SECRET_KEY` (used to
-sign cookies). No database credentials, no provider tokens.
+Required env vars per stack:
+- `SESSION_SECRET_KEY` — signs the cookie. Required (compose `?` syntax).
+- `ANTHROPIC_MODEL` — default model when the user doesn't pick one.
+- `REQUIRE_PROXY_HEADERS=true` — set on stage + prod, off in dev.
+- `METRICS_ADMIN_TOKEN` — set from GitHub Secrets via the deploy step;
+  unset means `/metrics` returns 404.
+
+No database credentials, no provider tokens.
 
 Full design in [`../docs/deployment.md`](../docs/deployment.md).

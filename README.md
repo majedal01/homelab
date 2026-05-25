@@ -45,12 +45,16 @@ Full design in [`docs/deployment.md`](docs/deployment.md).
 
 ### YNAB Insights
 
-**Status:** In progress.
+**Status:** Live.
+**URL:** [ynab.majed.fyi](https://ynab.majed.fyi)
 
-An AI financial coach that lives alongside YNAB. Bring your own YNAB and Anthropic keys, pick a budget, get a feed of forward-looking cards (subscriptions, spending anomalies, cashflow forecasts, goal trajectories, category drift, year/quarter retrospectives). A Claude-backed agent (`Ask`) answers natural-language follow-ups. Zero persistence: tokens and YNAB data live in process memory only, evicted after one hour idle. FastAPI + Next.js.
+An AI financial coach that lives alongside YNAB. Try the demo without signing up. Bring your own Anthropic or OpenAI key to use your real YNAB data. Zero persistence: keys and data never touch disk.
+
+The app surfaces a feed of forward-looking cards (subscriptions, spending anomalies, cashflow forecasts, goal trajectories, category drift, year/quarter retrospectives). An agent (`Ask`) answers natural-language follow-ups via your provider's tool-use API. FastAPI + Next.js.
 
 - Source: [`ynab_insights/`](ynab_insights/) (backend + frontend live together)
 - Design notes: [`ynab_insights/DESIGN.md`](ynab_insights/DESIGN.md)
+- Screenshots: [`docs/screenshots/`](docs/screenshots/) *(placeholder — to be populated)*
 
 ## Skills demonstrated
 
