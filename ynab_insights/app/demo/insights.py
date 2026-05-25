@@ -116,17 +116,18 @@ def _cashflow_forecast(budget_id: str, today: date, now: datetime) -> Insight:
         budget_id=budget_id,
         card_type="cashflow_forecast",
         dedup_key=f"forecast:{budget_id}:{iso.year}-W{iso.week:02d}",
-        title="Projected 90-day balance: $26,400",
+        title="Projected 90-day cash: $27,700",
         summary=(
-            "At your last 90 days' pace, balances would grow to $26,400 from today's $21,469."
+            "At your last 90 days' pace, cash balances would grow to $27,700 from today's $22,755."
         ),
         structured_data={
             "card_type": "cashflow_forecast",
-            "starting_balance_cents": 21_469_00,
+            "starting_balance_cents": 22_755_00,
+            "credit_card_debt_cents": 1_286_00,
             "daily_net_cents": 5500,
-            "projected_30d_cents": 23_119_00,
-            "projected_60d_cents": 24_769_00,
-            "projected_90d_cents": 26_419_00,
+            "projected_30d_cents": 24_405_00,
+            "projected_60d_cents": 26_055_00,
+            "projected_90d_cents": 27_705_00,
             "lookback_days": 90,
             "lookback_income_cents": 14_400_00,
             "lookback_spending_cents": 9_450_00,

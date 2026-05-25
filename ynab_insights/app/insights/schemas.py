@@ -79,7 +79,11 @@ class CategoryRate(BaseModel):
 
 class CashflowForecastData(BaseModel):
     card_type: Literal["cashflow_forecast"] = "cashflow_forecast"
+    # Sum of cash-equivalent (checking/savings/cash) accounts only.
+    # Credit-card balances are NOT subtracted; they're surfaced as a
+    # separate "credit_card_debt_cents" secondary metric.
     starting_balance_cents: int
+    credit_card_debt_cents: int = 0
     daily_net_cents: int
     projected_30d_cents: int
     projected_60d_cents: int

@@ -181,6 +181,7 @@ export interface CategoryRate {
 export interface CashflowForecastData {
   card_type: "cashflow_forecast";
   starting_balance_cents: number;
+  credit_card_debt_cents: number;
   daily_net_cents: number;
   projected_30d_cents: number;
   projected_60d_cents: number;

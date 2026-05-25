@@ -270,8 +270,54 @@ def transactions_in_range(
 
 
 def starting_balance_cents(snapshot: YnabSnapshot) -> int:
-    """Sum of open on-budget account balances. The base for cashflow projections."""
+    """Sum of open on-budget account balances, including credit cards.
+
+    Kept for callers that want the net-of-credit-card-debt figure (legacy
+    semantic). Cashflow Forecast uses `cash_balance_cents` instead; see
+    that function for the v2.6f rationale.
+    """
     return sum(a.balance_cents for a in snapshot.accounts if a.on_budget and not a.closed)
+
+
+# YNAB's `Account.type` values for cash-equivalent accounts. Liquid funds
+# the user can actually spend without taking on new debt.
+_CASH_ACCOUNT_TYPES = frozenset({"checking", "savings", "cash"})
+
+# YNAB's credit-card account types. Treated as debt, not part of the
+# starting balance for cashflow projections.
+_CREDIT_ACCOUNT_TYPES = frozenset({"creditCard", "lineOfCredit"})
+
+
+def cash_balance_cents(snapshot: YnabSnapshot) -> int:
+    """Sum of open cash-account balances only — no credit cards.
+
+    The Cashflow Forecast's "Today" number should answer "how much can
+    you spend before taking on new debt?" Treating cash-minus-credit as
+    available cash mispresents revolved credit: a user with $3k in
+    checking and $5k owed on a credit card is not -$2k poorer than today.
+    They have $3k of cash and a separate $5k debt that they pay down
+    over time. Surface the two facts separately.
+    """
+    return sum(
+        a.balance_cents
+        for a in snapshot.accounts
+        if a.on_budget and not a.closed and a.type in _CASH_ACCOUNT_TYPES
+    )
+
+
+def credit_card_debt_cents(snapshot: YnabSnapshot) -> int:
+    """Total positive debt across all open credit-card / LoC accounts.
+
+    YNAB stores credit balances as negatives (you owe the bank). We
+    flip the sign so consumers see a positive "debt" figure.
+    """
+    total = 0
+    for a in snapshot.accounts:
+        if a.closed or a.type not in _CREDIT_ACCOUNT_TYPES:
+            continue
+        if a.balance_cents < 0:
+            total += -a.balance_cents
+    return total
 
 
 @dataclass(frozen=True)
