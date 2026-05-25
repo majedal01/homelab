@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # Public demo endpoint: per-IP. Read from DEMO_SESSION_RATE_LIMIT_PER_IP_PER_HOUR.
     demo_session_rate_limit_per_ip_per_hour: int = 10
 
+    # When true (set on stage + prod), ProxyHeaderMiddleware warns
+    # (rate-limited) when X-Forwarded-Proto is missing. Off by default so
+    # local dev doesn't spam.
+    require_proxy_headers: bool = False
+
     # Agent loop guardrails (v2.5).
     agent_max_tool_calls: int = 20
     agent_max_duration_seconds: int = 60
