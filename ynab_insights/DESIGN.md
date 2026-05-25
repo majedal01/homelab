@@ -291,6 +291,31 @@ gauges cover sessions created/evicted, rate-limit hits, provider
 validation failures, agent guardrail trips, insights generated, and
 demo-session-active gauge. See `app/observability.py`.
 
+`/metrics` is **not exposed publicly.** The Cloudflare Tunnel routes
+the public hostname to the Next.js frontend container, which has no
+`/metrics` route of its own (the catch-all proxy only forwards
+`/api/*`). Scraping the public URL hits Next's own 404 before
+reaching FastAPI. Read counters by execing into the app container
+on the VM:
+
+```bash
+ssh deploy@<VM>
+cd /home/deploy/stacks/prod  # or stage
+docker compose exec app python -c "
+import os, urllib.request
+req = urllib.request.Request(
+    'http://localhost:8000/metrics',
+    headers={'X-Admin-Token': os.environ['METRICS_ADMIN_TOKEN']},
+)
+print(urllib.request.urlopen(req).read().decode())
+"
+```
+
+The token lives in the container's env from the deploy step; no need
+to pass it manually. If a future Grafana / Prometheus instance lives
+on the tailnet, point its scraper at the FastAPI service's tailscale
+IP (still not through CF) with the same token header.
+
 ## Deployment
 
 Branch-to-env: `main` auto-deploys stage; prod redeploys on manual
