@@ -26,6 +26,7 @@ from app.llm import (
     build_provider,
     detect_provider,
 )
+from app.observability import metrics
 from app.services.ynab_client import YNABClient, fetch_snapshot
 from app.session.middleware import CurrentSessionDep
 from app.session.models import SessionPublic, UserSession
@@ -99,23 +100,35 @@ async def _ping_provider(key: SecretStr, provider_name: str) -> None:
 
     inferred = detect_provider(key.get_secret_value())
     if inferred is None:
+        metrics.provider_validation_failures_total.labels(
+            provider="n/a", error_code="unknown_provider"
+        ).inc()
         raise _bad("unknown_provider", "That key didn't match a known provider.", 400)
     llm = build_provider(inferred, key, DEFAULT_MODEL_FOR_PROVIDER[inferred])
     try:
         await llm.ping()
     except InvalidApiKeyError as e:
+        metrics.provider_validation_failures_total.labels(
+            provider=inferred, error_code="invalid_key"
+        ).inc()
         raise _bad(
             f"invalid_{provider_name}_key",
             f"That {provider_name.title()} key was rejected.",
             401,
         ) from e
     except ProviderBillingError as e:
+        metrics.provider_validation_failures_total.labels(
+            provider=inferred, error_code="billing"
+        ).inc()
         raise _bad(
             f"{provider_name}_billing",
             f"{provider_name.title()} returned a billing or permission error.",
             402,
         ) from e
     except ProviderUnavailableError as e:
+        metrics.provider_validation_failures_total.labels(
+            provider=inferred, error_code="unavailable"
+        ).inc()
         raise _bad(
             f"{provider_name}_unavailable",
             f"Couldn't reach {provider_name.title()}. Try again in a moment.",
@@ -193,6 +206,7 @@ async def create_session(
         anthropic_model=body.anthropic_model,
     )
     store.create(session)
+    metrics.sessions_created_total.labels(is_demo="false", provider=provider).inc()
 
     response.set_cookie(
         key=COOKIE_NAME,
@@ -237,6 +251,8 @@ async def create_demo_session(
         last_synced_at=snapshot.fetched_at,
     )
     store.create(session)
+    metrics.sessions_created_total.labels(is_demo="true", provider="n/a").inc()
+    metrics.demo_session_active.inc()
 
     response.set_cookie(
         key=COOKIE_NAME,

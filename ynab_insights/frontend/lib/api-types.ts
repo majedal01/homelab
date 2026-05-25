@@ -90,9 +90,6 @@ export function detectProvider(key: string): LlmProvider | null {
   return null;
 }
 
-// Legacy exports kept so anything pre-v2.6d still compiles.
-export const ANTHROPIC_MODELS = MODELS_BY_PROVIDER.anthropic;
-export const DEFAULT_ANTHROPIC_MODEL = DEFAULT_MODEL_BY_PROVIDER.anthropic;
 
 export interface SessionErrorBody {
   error: string;

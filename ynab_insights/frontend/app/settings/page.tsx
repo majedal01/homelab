@@ -48,6 +48,11 @@ function PrivacyNotice() {
           <strong className="text-foreground">Session expiry:</strong> one hour idle,
           four hours absolute. After that the server forgets everything.
         </li>
+        <li>
+          <strong className="text-foreground">Switching providers:</strong> end your
+          session above and re-onboard with the new key. Provider is fixed for the
+          life of a session.
+        </li>
       </ul>
     </section>
   );

@@ -1,12 +1,18 @@
 # YNAB Insights
 
-An AI financial coach that lives alongside YNAB. Bring your own YNAB token and Anthropic key. Sign in, pick a budget, get a feed of forward-looking cards: recurring subscriptions, weekly spending anomalies, 90-day cashflow forecasts, goal trajectories, year-over-year category drift, and quarterly/annual retrospectives. A Claude-backed agent (`Ask`) answers follow-up questions with a streaming tool-use loop against the same in-memory snapshot.
+**Live at [ynab.majed.fyi](https://ynab.majed.fyi).** Try the demo without signing up. Bring your own Anthropic or OpenAI key to use your real YNAB data.
 
-**Zero persistence.** Tokens and your YNAB data live in server memory only. No database. Restart wipes everything. One-hour idle / four-hour absolute session cap.
+An AI financial coach that lives alongside YNAB. Pick a budget, get a feed of forward-looking cards (recurring subscriptions, weekly spending anomalies, 90-day cashflow forecasts, goal trajectories, year-over-year category drift, quarterly/annual retrospectives). An agent (`Ask`) answers follow-up questions via your provider's streaming tool-use API against the same in-memory snapshot.
+
+**Zero persistence.** Keys and YNAB data live in server memory only. No database. Restart wipes everything. One-hour idle / four-hour absolute session cap.
+
+**Provider-agnostic.** Detect by key prefix at sign-in: `sk-ant-…` routes to Anthropic, `sk-…` (or `sk-proj-…`) routes to OpenAI. Both work for insight enhancement and the Ask tool-use loop. Model dropdown swaps tiles automatically.
+
+**Demo mode.** No-key path for recruiters and the curious. A pre-baked deterministic snapshot and six hand-written insights covering every card type ship as a real (`is_demo=true`) session. `Ask` is disabled in demo with a clear sign-in CTA; everything else works.
 
 ## Stack
 
-FastAPI + Pydantic on the backend, no database. `cachetools.TTLCache` holds sessions; `itsdangerous` signs the cookie. Next.js 15 (App Router) + Tailwind + shadcn/ui + Tremor + Framer Motion on the frontend. Claude (`claude-haiku-4-5`) for tool-use and optional narrative copy on each card.
+FastAPI + Pydantic on the backend, no database. `cachetools.TTLCache` holds sessions; `itsdangerous` signs the cookie. `prometheus-client` for the gated `/metrics` endpoint. Next.js 15 (App Router) + Tailwind + shadcn/ui + Tremor + Framer Motion on the frontend.
 
 ## Local development
 
@@ -27,13 +33,14 @@ pytest
 
 ## Architecture
 
-- `app/`: FastAPI service.
-- `app/session/`: TTLCache session store, signed-cookie middleware, rate-limit middleware.
+- `app/llm/`: provider abstraction. `LlmProvider` ABC + `AnthropicProvider` + `OpenAIProvider`. Normalized `StreamEvent` types so the SSE wire format stays stable across providers.
+- `app/session/`: TTLCache session store, signed-cookie middleware, rate-limit middleware, proxy-header warn-on-missing middleware.
 - `app/snapshot/`: in-memory data shapes and pure-Python aggregations (replaces SQLAlchemy).
 - `app/insights/`: generator framework plus one module per card type. Each generator auto-registers on import.
-- `app/agent/`: streaming Claude tool-use loop with per-request key, 20-tool-call cap, 60s wall-clock cap.
-- `frontend/app/welcome/`: onboarding flow (token entry + budget picker).
-- `frontend/app/insights/`: feed + per-card detail routes.
-- `frontend/app/settings/`: refresh, end session, privacy notice.
+- `app/demo/`: deterministic snapshot + hand-written insights for the no-key demo path.
+- `app/agent/`: streaming agent loop with per-request key + provider. 20-tool-call cap, 60s wall-clock cap.
+- `app/observability.py`: Prometheus counters + gauges, exposed at `GET /metrics` behind `X-Admin-Token`.
+- `frontend/app/welcome/`: onboarding (token entry + budget picker + demo CTA + provider auto-detect).
+- `frontend/app/insights/`, `/explore/`, `/ask/`, `/settings/`.
 
-Design notes (heuristics, thresholds, data model, session lifecycle, rate-limit numbers) in [`DESIGN.md`](DESIGN.md). The v2.5 planning doc with the rationale lives at [`../docs/ynab-insights.md`](../docs/ynab-insights.md). Deployment in [`../docs/deployment.md`](../docs/deployment.md).
+Design notes (heuristics, thresholds, data model, session lifecycle, rate-limit numbers, provider abstraction, demo) in [`DESIGN.md`](DESIGN.md). Deployment in [`../docs/deployment.md`](../docs/deployment.md).

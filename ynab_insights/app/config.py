@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     rate_limit_generate_per_hour: int = 10
     rate_limit_ask_per_hour: int = 20
     rate_limit_reads_per_minute: int = 120
+    # Public demo endpoint: per-IP. Read from DEMO_SESSION_RATE_LIMIT_PER_IP_PER_HOUR.
+    demo_session_rate_limit_per_ip_per_hour: int = 10
+
+    # When true (set on stage + prod), ProxyHeaderMiddleware warns
+    # (rate-limited) when X-Forwarded-Proto is missing. Off by default so
+    # local dev doesn't spam.
+    require_proxy_headers: bool = False
+
+    # Empty string disables the /metrics endpoint entirely (returns 404).
+    # When set, callers must send X-Admin-Token matching this value to
+    # read Prometheus counters. Same constant-time comparison either way.
+    metrics_admin_token: str = ""
 
     # Agent loop guardrails (v2.5).
     agent_max_tool_calls: int = 20

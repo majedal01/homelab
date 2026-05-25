@@ -21,6 +21,7 @@ from cachetools import TTLCache
 from itsdangerous import BadSignature, URLSafeSerializer
 
 from app.config import Settings
+from app.observability import metrics
 from app.session.models import UserSession
 
 logger = logging.getLogger(__name__)
@@ -71,12 +72,19 @@ class SessionStore:
             if self.is_past_absolute_cap(session):
                 # 4h hard cap reached; evict.
                 del self._cache[sid]
+                metrics.sessions_evicted_total.labels(reason="absolute_cap").inc()
+                if session.is_demo:
+                    metrics.demo_session_active.dec()
                 return None
             return session
 
     def evict(self, sid: str) -> None:
         with self._lock:
-            self._cache.pop(sid, None)
+            session = self._cache.pop(sid, None)
+        if session is not None:
+            metrics.sessions_evicted_total.labels(reason="explicit_delete").inc()
+            if session.is_demo:
+                metrics.demo_session_active.dec()
 
     def __len__(self) -> int:
         return len(self._cache)

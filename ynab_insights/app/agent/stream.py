@@ -34,6 +34,7 @@ from app.llm import (
     build_provider,
     detect_provider,
 )
+from app.observability import metrics
 from app.snapshot.models import YnabSnapshot
 
 logger = logging.getLogger(__name__)
@@ -123,6 +124,7 @@ async def stream_agent(
     `provider` is detected from the key prefix when not supplied.
     """
     if len(question) > settings.agent_input_max_chars:
+        metrics.agent_guardrail_trips_total.labels(type="max_input_length").inc()
         yield _sse(
             "error",
             {"message": f"Question is over the {settings.agent_input_max_chars}-character limit."},
@@ -154,9 +156,18 @@ async def stream_agent(
             max_duration_seconds=settings.agent_max_duration_seconds,
         ):
             yield _event_to_sse(event)
+            # The provider emits a DoneEvent with the stop reason when it
+            # trips a guardrail. Mirror to a counter so we can monitor how
+            # often each cap actually fires.
+            if isinstance(event, DoneEvent):
+                if event.stop_reason == "max_tool_calls":
+                    metrics.agent_guardrail_trips_total.labels(type="max_tool_calls").inc()
+                elif event.stop_reason == "timeout":
+                    metrics.agent_guardrail_trips_total.labels(type="max_duration").inc()
             # Defense in depth against a misbehaving provider that doesn't
             # honor max_duration: cap at the wrapper level too.
             if time.monotonic() - start > settings.agent_max_duration_seconds + 5:
+                metrics.agent_guardrail_trips_total.labels(type="max_duration").inc()
                 yield _sse("done", {"turns_used": 0, "stop_reason": "timeout"})
                 return
     except asyncio.CancelledError:
