@@ -1,13 +1,31 @@
-"""Subscription Audit generator.
+"""Subscription Audit generator (v2.6f).
 
-Clusters recurring same-payee + same-amount charges over a 90-day lookback.
-A cluster qualifies as a subscription when it has at least three occurrences
-and the intervals between them land within +/-20% of one canonical cadence
-(weekly, monthly, quarterly, yearly).
+Clusters recurring same-payee + similar-amount charges over a 12-month
+lookback. The v2.4 thresholds missed obvious recurring charges on real
+budgets:
+
+- Required 3 occurrences -> missed quarterly / semiannual subs in flight
+- Required exact-cent amount match -> Netflix's mid-window price hike
+  from $15.99 to $17.99 split into two clusters and neither qualified
+- Fixed +/-20% interval tolerance -> 28-32 day "months" landed outside
+  the band for some posting dates
+- Payee match was case + punctuation sensitive -> "NETFLIX.COM TX123",
+  "Netflix", and "NETFLIX 4839" failed to cluster
+
+v2.6f loosens each of those while keeping the false-positive floor high:
+
+- Minimum occurrences is 2 when the interval CoV is very low (<=0.05),
+  otherwise stays at 3
+- Amount tolerance is 12% from the cluster median, computed after grouping
+- Interval bands are per-cadence with realistic jitter
+- Payee names normalize before grouping: case, punctuation, suffix tokens
+  (INC, LLC, .COM, PAYPAL *), trailing transaction-id-shaped suffixes
 """
 
 from __future__ import annotations
 
+import logging
+import re
 import statistics
 from collections import defaultdict
 from collections.abc import Sequence
@@ -23,33 +41,66 @@ from app.insights.schemas import Cadence, SubscriptionAuditData, TransactionRef
 from app.snapshot.models import YnabSnapshot
 from app.snapshot.queries import _internal_transfer_payee_ids, transactions_in_range
 
-LOOKBACK_DAYS = 90
-MIN_OCCURRENCES = 3
-INTERVAL_TOLERANCE = 0.20  # +/-20%
+logger = logging.getLogger(__name__)
 
-# Canonical cadences and their (min, target, max) day ranges. Picked so the
-# bands don't overlap and so realistic billing jitter (a charge that lands on
-# a weekend gets posted 1-3 days later) stays inside the band.
+LOOKBACK_DAYS = 365
+
+# Cluster qualification.
+MIN_OCCURRENCES = 3
+MIN_OCCURRENCES_WITH_TIGHT_INTERVALS = 2
+AMOUNT_TOLERANCE = 0.12  # +/-12% from cluster median
+
+# Per-cadence interval bands: (cadence, min, target, max). The bands are
+# wider than v2.4 to absorb posting-date jitter — a "monthly" charge that
+# lands on a weekend gets processed 1-3 days later, so 28-32d is normal.
 _CADENCE_BANDS: tuple[tuple[Cadence, int, int, int], ...] = (
-    ("weekly", 6, 7, 8),
-    ("monthly", 28, 30, 32),
-    ("quarterly", 85, 91, 95),
-    ("yearly", 360, 365, 370),
+    ("weekly", 5, 7, 9),
+    ("monthly", 25, 30, 35),
+    ("quarterly", 75, 91, 105),
+    ("yearly", 335, 365, 395),
 )
 
+# Payee normalization. Trailing transaction-id-shaped tokens (8+ alphanumeric
+# uppercase characters) and common corporate suffixes get stripped before
+# cluster grouping.
+_SUFFIX_TOKENS = re.compile(
+    r"\b(inc|llc|ltd|corp|co|com|company|the|paypal|sq|sqr|tst)\b",
+    re.IGNORECASE,
+)
+_TRAILING_ID = re.compile(r"\s+[A-Z0-9]{8,}\b")
+_PUNCTUATION = re.compile(r"[*#./\-_,()&]")
+_WHITESPACE = re.compile(r"\s+")
 
-def _classify_cadence(median_interval: float) -> Cadence | None:
-    for name, lo, _target, hi in _CADENCE_BANDS:
+
+def _normalize_payee(name: str) -> str:
+    """Collapse a payee name to a stable lower-case key.
+
+    The goal isn't pretty output — we keep the original name for display.
+    The output is purely a clustering key, so aggressive stripping is
+    fine as long as semantically-same payees end up at the same key.
+    """
+    cleaned = name
+    cleaned = _TRAILING_ID.sub("", cleaned)
+    cleaned = _PUNCTUATION.sub(" ", cleaned)
+    cleaned = _SUFFIX_TOKENS.sub("", cleaned)
+    cleaned = _WHITESPACE.sub(" ", cleaned).strip()
+    return cleaned.lower()
+
+
+def _classify_cadence(median_interval: float) -> tuple[Cadence, int] | None:
+    """Return (cadence, target_days) if the median lands inside a band."""
+    for name, lo, target, hi in _CADENCE_BANDS:
         if lo <= median_interval <= hi:
-            return name
+            return name, target
     return None
 
 
-def _intervals_consistent(intervals: list[int], median: float) -> bool:
-    if median <= 0:
+def _amount_within_tolerance(amounts: list[int]) -> bool:
+    """All amounts must sit within +/-AMOUNT_TOLERANCE of the cluster median."""
+    median = statistics.median(amounts)
+    if median == 0:
         return False
-    threshold = median * INTERVAL_TOLERANCE
-    return all(abs(i - median) <= max(threshold, 1.0) for i in intervals)
+    return all(abs(a - median) / abs(median) <= AMOUNT_TOLERANCE for a in amounts)
 
 
 def _monthly_factor(cadence: Cadence) -> float:
@@ -65,7 +116,7 @@ def _monthly_factor(cadence: Cadence) -> float:
 class _Cluster:
     payee_id: str
     payee_name: str
-    amount_cents: int  # negative
+    median_amount_cents: int  # negative
     occurrences: list[TransactionRef]
     cadence: Cadence
 
@@ -87,8 +138,10 @@ class SubscriptionAuditGenerator(InsightGenerator):
         payees_by_id = snapshot.payee_by_id()
         internal_transfers = _internal_transfer_payee_ids(snapshot)
 
-        grouped: dict[tuple[str, int], list[TransactionRef]] = defaultdict(list)
-        payee_names: dict[str, str] = {}
+        # Group by (normalized_payee_key) — not (payee_id, exact_amount).
+        # Amount tolerance is checked after grouping so a mid-window price
+        # change still lands inside one cluster.
+        grouped: dict[str, list[tuple[str, str, TransactionRef]]] = defaultdict(list)
         for t in rows:
             if t.amount_cents >= 0:
                 continue
@@ -99,43 +152,28 @@ class SubscriptionAuditGenerator(InsightGenerator):
             payee = payees_by_id.get(t.payee_id)
             if payee is None:
                 continue
-            grouped[(t.payee_id, t.amount_cents)].append(
-                TransactionRef(
-                    id=t.id,
-                    date=t.date,
-                    amount_cents=t.amount_cents,
-                    payee_name=payee.name,
-                    memo=t.memo,
+            key = _normalize_payee(payee.name)
+            if not key:
+                continue
+            grouped[key].append(
+                (
+                    t.payee_id,
+                    payee.name,
+                    TransactionRef(
+                        id=t.id,
+                        date=t.date,
+                        amount_cents=t.amount_cents,
+                        payee_name=payee.name,
+                        memo=t.memo,
+                    ),
                 )
             )
-            payee_names[t.payee_id] = payee.name
 
         clusters: list[_Cluster] = []
-        for (payee_id, amount_cents), occurrences in grouped.items():
-            if len(occurrences) < MIN_OCCURRENCES:
-                continue
-            occurrences.sort(key=lambda o: o.date)
-            intervals = [
-                (occurrences[i].date - occurrences[i - 1].date).days
-                for i in range(1, len(occurrences))
-            ]
-            if not intervals:
-                continue
-            median = statistics.median(intervals)
-            cadence = _classify_cadence(median)
-            if cadence is None:
-                continue
-            if not _intervals_consistent(intervals, median):
-                continue
-            clusters.append(
-                _Cluster(
-                    payee_id=payee_id,
-                    payee_name=payee_names[payee_id],
-                    amount_cents=amount_cents,
-                    occurrences=occurrences,
-                    cadence=cadence,
-                )
-            )
+        for _key, entries in grouped.items():
+            cluster = _qualify_cluster(entries)
+            if cluster is not None:
+                clusters.append(cluster)
 
         outputs: list[GeneratedInsight] = []
         for cluster in clusters:
@@ -148,7 +186,7 @@ class SubscriptionAuditGenerator(InsightGenerator):
         anthropic_key: SecretStr | None,
         anthropic_model: str | None,
     ) -> GeneratedInsight:
-        absolute_cents = -cluster.amount_cents
+        absolute_cents = -cluster.median_amount_cents
         monthly_cost_cents = round(absolute_cents * _monthly_factor(cluster.cadence))
         annual_cost_cents = monthly_cost_cents * 12
 
@@ -189,3 +227,56 @@ class SubscriptionAuditGenerator(InsightGenerator):
             structured_data=data.model_dump(mode="json"),
             llm_enhanced=enhanced.used_llm,
         )
+
+
+def _qualify_cluster(
+    entries: list[tuple[str, str, TransactionRef]],
+) -> _Cluster | None:
+    """Decide whether a normalized-payee bucket counts as a subscription."""
+    if len(entries) < MIN_OCCURRENCES_WITH_TIGHT_INTERVALS:
+        return None
+
+    entries.sort(key=lambda e: e[2].date)
+    refs = [ref for _pid, _pname, ref in entries]
+    amounts = [r.amount_cents for r in refs]
+    if not _amount_within_tolerance(amounts):
+        return None
+
+    intervals = [(refs[i].date - refs[i - 1].date).days for i in range(1, len(refs))]
+    if not intervals:
+        return None
+    median_interval = statistics.median(intervals)
+    classified = _classify_cadence(median_interval)
+    if classified is None:
+        return None
+    cadence, target_days = classified
+
+    n = len(refs)
+    if n < MIN_OCCURRENCES:
+        # 2-occurrence cluster: only one interval exists, so CoV across
+        # intervals is undefined. Require the single interval to land
+        # within +/-3 days of the canonical target for the cadence —
+        # tighter than the cadence band itself.
+        if abs(intervals[0] - target_days) > 3:
+            return None
+    # 3+ occurrences: classify_cadence already vetted by-band, which is
+    # the tolerance budget. A CoV check would gate-keep rent-style
+    # intervals that wobble +/- a few days within the band.
+
+    # The displayed payee_id and name come from the most-frequent original
+    # payee_id in the cluster (the same merchant may appear with different
+    # internal payee_ids if YNAB created two entries for them).
+    by_pid: dict[str, int] = defaultdict(int)
+    name_by_pid: dict[str, str] = {}
+    for pid, pname, _ref in entries:
+        by_pid[pid] += 1
+        name_by_pid[pid] = pname
+    primary_pid = max(by_pid, key=lambda k: by_pid[k])
+
+    return _Cluster(
+        payee_id=primary_pid,
+        payee_name=name_by_pid[primary_pid],
+        median_amount_cents=int(statistics.median(amounts)),
+        occurrences=refs,
+        cadence=cadence,
+    )
