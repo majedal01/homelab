@@ -40,8 +40,14 @@ from app.snapshot.queries import (
 
 logger = logging.getLogger(__name__)
 
-ANNUAL_DAYS = 365
-QUARTERLY_DAYS = 90
+# Minimum history span to qualify each variant. The thresholds are a bit
+# under 365 / 90 so a snapshot that just clipped 52 weeks (364 days) or
+# 12 weeks (84 days) still gets the appropriate card; the computed
+# window is still exactly a year / quarter back.
+ANNUAL_MIN_HISTORY_DAYS = 350
+QUARTERLY_MIN_HISTORY_DAYS = 80
+ANNUAL_WINDOW_DAYS = 365
+QUARTERLY_WINDOW_DAYS = 90
 
 
 def _period_bounds(
@@ -58,11 +64,11 @@ def _period_bounds(
         return None
     oldest = min(t.date for t in snapshot.transactions)
     span_days = (today - oldest).days
-    if span_days >= ANNUAL_DAYS:
-        start = today - timedelta(days=ANNUAL_DAYS)
+    if span_days >= ANNUAL_MIN_HISTORY_DAYS:
+        start = today - timedelta(days=ANNUAL_WINDOW_DAYS)
         return ("annual", start, today, "last 12 months")
-    if span_days >= QUARTERLY_DAYS:
-        start = today - timedelta(days=QUARTERLY_DAYS)
+    if span_days >= QUARTERLY_MIN_HISTORY_DAYS:
+        start = today - timedelta(days=QUARTERLY_WINDOW_DAYS)
         return ("quarterly", start, today, "last 90 days")
     return None
 

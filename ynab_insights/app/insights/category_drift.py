@@ -64,7 +64,10 @@ class CategoryDriftGenerator(InsightGenerator):
         outputs: list[GeneratedInsight] = []
 
         for cat in history:
-            spend = [-x for x in cat.monthly_nets_cents]
+            # category_monthly_history's last entry is the in-progress current
+            # month, which would skew "trailing 3 months" by absorbing a
+            # partial-month bucket. Drop it before any drift math.
+            spend = [-x for x in cat.monthly_nets_cents[:-1]]
             # Need at least two active months to compute any kind of drift.
             # Irregular-cycle categories are filtered separately by the
             # classifier check below.

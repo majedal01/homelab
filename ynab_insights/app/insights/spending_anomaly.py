@@ -234,13 +234,21 @@ def _build_anomaly(
 
     mean = statistics.fmean(baseline)
     stdev = statistics.pstdev(baseline) if len(baseline) > 1 else 0.0
-    if stdev == 0:
+    absolute_dev = abs(current - mean)
+
+    if absolute_dev < MIN_ABSOLUTE_DEVIATION_CENTS:
         return None
 
-    z = (current - mean) / stdev
-    absolute_dev = abs(current - mean)
-    if abs(z) < Z_SCORE_THRESHOLD or absolute_dev < MIN_ABSOLUTE_DEVIATION_CENTS:
-        return None
+    if stdev > 0:
+        z = (current - mean) / stdev
+        if abs(z) < Z_SCORE_THRESHOLD:
+            return None
+    else:
+        # Constant baseline (e.g., the same $1500 rent every month for a
+        # year): z is mathematically infinite. The dollar floor above is
+        # the only meaningful gate; synthesize a sentinel z so the payload
+        # field stays informative on the frontend.
+        z = 10.0 if current > mean else -10.0
 
     deviation_ratio = (current - mean) / mean if mean > 0 else 0.0
     current_start, current_end = buckets[-1]

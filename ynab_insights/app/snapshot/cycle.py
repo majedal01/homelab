@@ -42,9 +42,13 @@ from app.snapshot.queries import _internal_transfer_payee_ids, _is_income_catego
 Cycle = Literal["weekly", "monthly", "quarterly", "annual", "irregular"]
 
 # Trailing windows in days. Weekly/monthly/quarterly are evaluated against
-# the last 12 months. Annual needs at least 18 months of data to even try.
+# the last 12 months. Annual needs ~24 months of data so two yearly
+# occurrences can both land in the window (one annual charge near today
+# and the prior year's same charge ~365 days back leaves the older one
+# barely outside an 18-month window when today drifts a few months past
+# the most recent occurrence).
 _RECENT_WINDOW_DAYS = 365
-_ANNUAL_WINDOW_DAYS = 18 * 30  # ~540 days
+_ANNUAL_WINDOW_DAYS = 730
 _ANNUAL_MIN_OCCURRENCES = 2
 
 # Frequency shortcut: a category with this many txns in 365d is weekly,
@@ -54,10 +58,11 @@ _ANNUAL_MIN_OCCURRENCES = 2
 _WEEKLY_FREQUENCY_FLOOR = 40
 
 # Coefficient of variation of intervals must stay below this for the
-# category to count as "regularly recurring." 0.6 is generous — a true
-# subscription is ~0.05; 0.6 lets in things like rent that occasionally
-# shifts a few days due to weekends.
-_MAX_INTERVAL_COV = 0.6
+# category to count as "regularly recurring." A true subscription has CoV
+# ~0.05; a clean monthly rent ~0.05; messy monthly with weekend jitter
+# ~0.15. Set the ceiling tight enough that a real "twice in a month plus
+# wide gaps" pattern (CoV ~0.5) falls through to irregular.
+_MAX_INTERVAL_COV = 0.4
 
 # Interval bands in days. Picked wide enough to absorb the jitter of
 # "monthly" (28-32d months) and "quarterly" (varies by quarter length).

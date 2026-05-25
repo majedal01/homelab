@@ -49,7 +49,7 @@ export function CashflowForecastDetail({
           <span className="text-foreground tabular-nums">
             {formatDollars(data.credit_card_debt_cents)}
           </span>{" "}
-          — shown separately so the cash projection isn't masked by revolved debt.
+          — shown separately so the cash projection isn&apos;t masked by revolved debt.
         </div>
       ) : null}
       <div className="rounded-md border bg-card p-4">
