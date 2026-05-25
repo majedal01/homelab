@@ -10,11 +10,12 @@ Importing a generator module is enough to register it (the
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
@@ -24,6 +25,12 @@ from app.observability import metrics
 from app.snapshot.models import YnabSnapshot
 
 logger = logging.getLogger(__name__)
+
+# How long any single generator may run before the orchestrator gives up
+# and records a timeout. Sized to cover an LLM-enhanced generator hitting
+# enhance_copy's 5s timeout per insight on a budget with a handful of
+# results, plus headroom for network jitter.
+DEFAULT_PER_GENERATOR_TIMEOUT_S: float = 30.0
 
 
 @dataclass
@@ -69,19 +76,6 @@ class RunRecord:
     error: str | None = None
 
 
-@dataclass
-class RunOutcome:
-    """Summary returned by `execute_generator`."""
-
-    run_id: int
-    status: str
-    insights_created: int
-    insights_updated: int
-    duration_ms: int
-    error: str | None = None
-    insight_ids: list[int] = field(default_factory=list)
-
-
 class InsightGenerator(ABC):
     """Base class for insight generators."""
 
@@ -125,37 +119,120 @@ def get_generator(card_type: str) -> type[InsightGenerator] | None:
     return _REGISTRY.get(card_type)
 
 
-async def execute_generator(
+@dataclass
+class _Invocation:
+    """The async-completed side of one generator run.
+
+    Held briefly between `asyncio.gather` returning and the sequential
+    merge step that allocates ids and produces final `Insight` objects.
+    """
+
+    generator_cls: type[InsightGenerator]
+    outputs: Sequence[GeneratedInsight]
+    status: str
+    error: str | None
+    started_at: datetime
+    finished_at: datetime
+    duration_ms: int
+
+
+async def _invoke_generator(
     generator_cls: type[InsightGenerator],
     snapshot: YnabSnapshot,
     anthropic_key: SecretStr | None,
-    *,
-    next_id: int,
-    next_run_id: int,
-    existing: dict[tuple[str, str], Insight] | None = None,
-    anthropic_model: str | None = None,
-) -> tuple[RunOutcome, list[Insight], RunRecord]:
-    """Run one generator. Returns (outcome, updated insight list, run record).
-
-    `existing` maps (budget_id, dedup_key) -> Insight so we can upsert
-    in-place: refresh content + refreshed_at, preserve dismissed_at and id.
-    The caller (router) merges the returned `insights` list back into the
-    session.
-    """
+    anthropic_model: str | None,
+    timeout_s: float,
+) -> _Invocation:
+    """Run one generator with a wall-clock timeout. Never raises."""
     started = datetime.now(UTC)
     perf_started = time.perf_counter()
-
-    created = 0
-    updated = 0
-    insight_ids: list[int] = []
-    new_or_updated: list[Insight] = []
+    outputs: Sequence[GeneratedInsight] = ()
     error: str | None = None
-
-    by_key = existing or {}
+    status = "ok"
 
     try:
-        outputs = await generator_cls().run(snapshot, anthropic_key, anthropic_model)
-        for output in outputs:
+        outputs = await asyncio.wait_for(
+            generator_cls().run(snapshot, anthropic_key, anthropic_model),
+            timeout=timeout_s,
+        )
+    except TimeoutError:
+        # `asyncio.wait_for` raises the builtin TimeoutError on Python 3.11+.
+        status = "error"
+        error = f"timeout after {timeout_s:.1f}s"
+        logger.warning(
+            "generator %s timed out (budget=%s, timeout=%.1fs)",
+            generator_cls.card_type,
+            snapshot.budget_id,
+            timeout_s,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # One bad generator must not crash the request. The orchestrator
+        # records the error in its RunRecord; everything else proceeds.
+        status = "error"
+        error = f"{type(exc).__name__}: {exc}"
+        logger.exception(
+            "generator %s failed for budget %s",
+            generator_cls.card_type,
+            snapshot.budget_id,
+        )
+
+    finished = datetime.now(UTC)
+    duration_ms = int((time.perf_counter() - perf_started) * 1000)
+    return _Invocation(
+        generator_cls=generator_cls,
+        outputs=outputs,
+        status=status,
+        error=error,
+        started_at=started,
+        finished_at=finished,
+        duration_ms=duration_ms,
+    )
+
+
+async def run_all_generators(
+    *,
+    generators: Sequence[type[InsightGenerator]],
+    snapshot: YnabSnapshot,
+    anthropic_key: SecretStr | None,
+    anthropic_model: str | None,
+    existing: dict[tuple[str, str], Insight],
+    next_id: int,
+    next_run_id: int,
+    per_generator_timeout_s: float = DEFAULT_PER_GENERATOR_TIMEOUT_S,
+) -> tuple[list[Insight], list[RunRecord], list[int]]:
+    """Run every generator concurrently. Merge results sequentially.
+
+    Concurrency: each generator runs under its own `asyncio.wait_for`, so
+    one slow generator cannot stall the others. A timeout records a failed
+    `RunRecord` with `error="timeout after Xs"` and produces no insights.
+
+    Sequential merge: id allocation is the one piece that can't be done in
+    parallel without coordinating a shared counter, so it happens here, in
+    the order `generators` was passed. Existing insights are upserted
+    in-place: refresh content + refreshed_at, preserve `dismissed_at` and
+    `id`. The caller writes the returned insight list back to the session.
+
+    Returns (insights, records, run_ids) where `insights` is the full
+    merged set (existing entries possibly mutated + new entries appended)
+    and `records` / `run_ids` are aligned with `generators` order.
+    """
+    invocations = await asyncio.gather(
+        *(
+            _invoke_generator(
+                cls, snapshot, anthropic_key, anthropic_model, per_generator_timeout_s
+            )
+            for cls in generators
+        )
+    )
+
+    by_key: dict[tuple[str, str], Insight] = dict(existing)
+    records: list[RunRecord] = []
+    run_ids: list[int] = []
+
+    for inv in invocations:
+        created = 0
+        updated = 0
+        for output in inv.outputs:
             key = (snapshot.budget_id, output.dedup_key)
             now = datetime.now(UTC)
             prior = by_key.get(key)
@@ -163,7 +240,7 @@ async def execute_generator(
                 insight = Insight(
                     id=next_id,
                     budget_id=snapshot.budget_id,
-                    card_type=generator_cls.card_type,
+                    card_type=inv.generator_cls.card_type,
                     dedup_key=output.dedup_key,
                     title=output.title,
                     summary=output.summary,
@@ -173,51 +250,30 @@ async def execute_generator(
                     llm_enhanced=output.llm_enhanced,
                 )
                 next_id += 1
-                new_or_updated.append(insight)
-                insight_ids.append(insight.id)
+                by_key[key] = insight
                 created += 1
-                metrics.insights_generated_total.labels(card_type=generator_cls.card_type).inc()
+                metrics.insights_generated_total.labels(card_type=inv.generator_cls.card_type).inc()
             else:
                 prior.title = output.title
                 prior.summary = output.summary
                 prior.structured_data = output.structured_data
                 prior.refreshed_at = now
                 prior.llm_enhanced = output.llm_enhanced
-                new_or_updated.append(prior)
-                insight_ids.append(prior.id)
                 updated += 1
-        status = "ok"
-    except Exception as exc:  # noqa: BLE001
-        # Caught broadly: one bad generator must not crash the request.
-        logger.exception(
-            "generator %s failed for budget %s",
-            generator_cls.card_type,
-            snapshot.budget_id,
+
+        record = RunRecord(
+            id=next_run_id,
+            card_type=inv.generator_cls.card_type,
+            started_at=inv.started_at,
+            finished_at=inv.finished_at,
+            status=inv.status,
+            duration_ms=inv.duration_ms,
+            insights_created=created,
+            insights_updated=updated,
+            error=inv.error,
         )
-        error = f"{type(exc).__name__}: {exc}"
-        status = "error"
+        records.append(record)
+        run_ids.append(next_run_id)
+        next_run_id += 1
 
-    finished = datetime.now(UTC)
-    duration_ms = int((time.perf_counter() - perf_started) * 1000)
-
-    record = RunRecord(
-        id=next_run_id,
-        card_type=generator_cls.card_type,
-        started_at=started,
-        finished_at=finished,
-        status=status,
-        duration_ms=duration_ms,
-        insights_created=created,
-        insights_updated=updated,
-        error=error,
-    )
-    outcome = RunOutcome(
-        run_id=next_run_id,
-        status=status,
-        insights_created=created,
-        insights_updated=updated,
-        duration_ms=duration_ms,
-        error=error,
-        insight_ids=insight_ids,
-    )
-    return outcome, new_or_updated, record
+    return list(by_key.values()), records, run_ids
