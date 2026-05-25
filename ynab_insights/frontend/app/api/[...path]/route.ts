@@ -4,15 +4,19 @@
  * The Next.js container is the only thing that can reach FastAPI
  * (`http://app:8000` on the compose-internal network). Browser code
  * posts to relative `/api/*` paths; this route forwards request + body
- * + cookies upstream and pipes the response back, including Set-Cookie
- * so the `sid` cookie lands in the browser.
+ * + cookies + X-Forwarded-* upstream and pipes the response back,
+ * including Set-Cookie so the `sid` cookie lands in the browser.
  *
- * SSE endpoints (`/ask`) have their own handler at app/api/ask/route.ts
- * because they need streaming. This handler covers everything else
- * under `/api/`.
+ * Header derivation lives in `lib/proxy-headers.ts` so this route and
+ * the SSE `/ask` route agree on the trust model. Inbound X-Forwarded-*
+ * is stripped before re-setting from CF-Connecting-IP, Host, and an
+ * "are we behind CF?" check, so FastAPI's session-cookie Secure flag
+ * and the v2.6e ProxyHeaderMiddleware see what they expect.
  */
 
 import { NextRequest } from "next/server";
+
+import { buildUpstreamHeaders } from "@/lib/proxy-headers";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
@@ -24,11 +28,7 @@ async function proxy(request: NextRequest, ctx: { params: Promise<{ path: string
   const search = request.nextUrl.search;
   const url = `${BACKEND_URL}${upstreamPath}${search}`;
 
-  const upstreamHeaders: Record<string, string> = {};
-  const cookie = request.headers.get("cookie");
-  if (cookie) upstreamHeaders["cookie"] = cookie;
-  const ct = request.headers.get("content-type");
-  if (ct) upstreamHeaders["content-type"] = ct;
+  const upstreamHeaders = buildUpstreamHeaders(request);
 
   // Read body once. GET/HEAD have no body; everything else may.
   const method = request.method;

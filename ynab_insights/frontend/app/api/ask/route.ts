@@ -1,12 +1,18 @@
 /**
  * Streaming proxy from the browser to FastAPI's /ask SSE endpoint.
  *
- * Forwards the session cookie so the backend can resolve the session.
- * On client abort, propagates upstream so FastAPI cancels the Anthropic
- * stream and stops billing tokens.
+ * Forwards the session cookie + the derived X-Forwarded-* trio so the
+ * backend can resolve the session and the v2.6e ProxyHeaderMiddleware
+ * stays quiet on a properly-fronted request. Header derivation lives
+ * in `lib/proxy-headers.ts` and is shared with the catch-all proxy.
+ *
+ * On client abort, propagates upstream so FastAPI cancels the agent
+ * stream and we stop being billed for unused tokens.
  */
 
 import { NextRequest } from "next/server";
+
+import { buildUpstreamHeaders } from "@/lib/proxy-headers";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
@@ -14,14 +20,16 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
-  const cookie = request.headers.get("cookie") ?? "";
+  const upstreamHeaders = buildUpstreamHeaders(request);
+  // SSE always sends JSON; ensure the upstream sees it even if the
+  // browser omitted content-type for some reason.
+  if (!upstreamHeaders.has("content-type")) {
+    upstreamHeaders.set("content-type", "application/json");
+  }
 
   const upstream = await fetch(`${BACKEND_URL}/ask`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(cookie ? { cookie } : {}),
-    },
+    headers: upstreamHeaders,
     body,
     signal: request.signal,
     // @ts-expect-error duplex required for streaming requests in Node 18+
