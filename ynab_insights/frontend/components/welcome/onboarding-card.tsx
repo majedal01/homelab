@@ -9,10 +9,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
-  ANTHROPIC_MODELS,
-  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_MODEL_BY_PROVIDER,
+  MODELS_BY_PROVIDER,
+  detectProvider,
   type BudgetOption,
   type CreateSessionResponse,
+  type LlmProvider,
+  type ModelOption,
   type SessionErrorBody,
 } from "@/lib/api-types";
 
@@ -29,7 +32,19 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
   const [error, setError] = React.useState<string | null>(null);
   const [budgets, setBudgets] = React.useState<BudgetOption[]>([]);
   const [selectedBudget, setSelectedBudget] = React.useState<string | null>(null);
-  const [model, setModel] = React.useState<string>(DEFAULT_ANTHROPIC_MODEL);
+  // Provider auto-detected from the key the user pastes. Anthropic-first
+  // default because that's the most common case for this project.
+  const [provider, setProvider] = React.useState<LlmProvider>("anthropic");
+  const [model, setModel] = React.useState<string>(DEFAULT_MODEL_BY_PROVIDER.anthropic);
+
+  function onLlmKeyInput(event: React.FormEvent<HTMLInputElement>): void {
+    const value = event.currentTarget.value.trim();
+    const detected = detectProvider(value);
+    if (detected && detected !== provider) {
+      setProvider(detected);
+      setModel(DEFAULT_MODEL_BY_PROVIDER[detected]);
+    }
+  }
 
   async function onTokenSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,7 +59,7 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           ynab_token: ynabToken,
-          anthropic_key: anthropicKey,
+          llm_key: anthropicKey,
           anthropic_model: model,
         }),
       });
@@ -93,11 +108,46 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
     }
   }
 
+  async function onDemoClick() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/session/demo", { method: "POST" });
+      if (!response.ok) {
+        setError(`Demo couldn't start (${response.status}).`);
+        return;
+      }
+      router.push("/insights");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Network error.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <Card className="bg-card/80 backdrop-blur">
       <CardContent className="p-6">
         {step === "tokens" ? (
           <form onSubmit={onTokenSubmit} className="space-y-4">
+            <div className="rounded-md border border-dashed bg-foreground/[0.04] p-3 text-sm">
+              <p className="font-medium">Just looking?</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Open the demo with sample data. No tokens, no commitment.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2 w-full"
+                onClick={onDemoClick}
+                disabled={submitting}
+              >
+                Try the demo
+                <ArrowRight className="ml-2 h-3.5 w-3.5" />
+              </Button>
+            </div>
             <div>
               <h1 className="text-xl font-semibold tracking-tight">Sign in with your keys.</h1>
               <p className="mt-1 text-sm text-muted-foreground">
@@ -115,13 +165,27 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
             />
             <Field
               name="anthropic_key"
-              label="Anthropic API key"
-              placeholder="sk-ant-..."
-              hint="From console.anthropic.com"
-              hintHref="https://console.anthropic.com/settings/keys"
+              label="LLM API key (Anthropic or OpenAI)"
+              placeholder="sk-ant-... or sk-..."
+              hint={
+                provider === "anthropic"
+                  ? "Anthropic detected. Get a key at console.anthropic.com"
+                  : "OpenAI detected. Get a key at platform.openai.com/api-keys"
+              }
+              hintHref={
+                provider === "anthropic"
+                  ? "https://console.anthropic.com/settings/keys"
+                  : "https://platform.openai.com/api-keys"
+              }
               required
+              onInput={onLlmKeyInput}
             />
-            <ModelPicker value={model} onChange={setModel} disabled={submitting} />
+            <ModelPicker
+              provider={provider}
+              value={model}
+              onChange={setModel}
+              disabled={submitting}
+            />
             {error && (
               <p className="text-sm text-destructive" role="alert">
                 {error}
@@ -212,9 +276,19 @@ interface FieldProps {
   hintHref?: string;
   required?: boolean;
   autoFocus?: boolean;
+  onInput?: (event: React.FormEvent<HTMLInputElement>) => void;
 }
 
-function Field({ name, label, placeholder, hint, hintHref, required, autoFocus }: FieldProps) {
+function Field({
+  name,
+  label,
+  placeholder,
+  hint,
+  hintHref,
+  required,
+  autoFocus,
+  onInput,
+}: FieldProps) {
   return (
     <div className="space-y-1.5">
       <label htmlFor={name} className="block text-sm font-medium">
@@ -228,6 +302,7 @@ function Field({ name, label, placeholder, hint, hintHref, required, autoFocus }
         placeholder={placeholder}
         required={required}
         autoFocus={autoFocus}
+        onInput={onInput}
       />
       {hint && (
         <p className="text-xs text-muted-foreground">
@@ -251,19 +326,27 @@ function Field({ name, label, placeholder, hint, hintHref, required, autoFocus }
 }
 
 function ModelPicker({
+  provider,
   value,
   onChange,
   disabled,
 }: {
+  provider: LlmProvider;
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
 }) {
+  const models: readonly ModelOption[] = MODELS_BY_PROVIDER[provider];
   return (
     <div className="space-y-1.5">
-      <span className="block text-sm font-medium">Model</span>
+      <div className="flex items-baseline justify-between">
+        <span className="block text-sm font-medium">Model</span>
+        <span className="text-xs text-muted-foreground">
+          {provider === "anthropic" ? "Anthropic" : "OpenAI"}
+        </span>
+      </div>
       <div className="grid gap-1.5 sm:grid-cols-3">
-        {ANTHROPIC_MODELS.map((m) => {
+        {models.map((m) => {
           const active = m.value === value;
           return (
             <button

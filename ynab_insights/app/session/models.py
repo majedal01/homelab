@@ -31,6 +31,9 @@ class UserSession(BaseModel):
     # User's per-session model pick. None means "use whatever the Settings
     # default is" — keeps tests + existing sessions backward compatible.
     anthropic_model: str | None = None
+    # True for demo sessions seeded from app.demo. The router and agent
+    # short-circuit any path that would call out to a real LLM or YNAB.
+    is_demo: bool = False
     budget_id: str | None = None
     budget_name: str | None = None
     snapshot: YnabSnapshot | None = None
@@ -52,6 +55,7 @@ class SessionPublic(BaseModel):
     budget_id: str | None
     budget_name: str | None
     anthropic_model: str | None
+    is_demo: bool = False
     created_at: datetime
     last_active_at: datetime
     last_synced_at: datetime | None

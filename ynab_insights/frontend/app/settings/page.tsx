@@ -1,4 +1,5 @@
 import { Aurora } from "@/components/brand/aurora";
+import { DemoBanner } from "@/components/demo/demo-banner";
 import { SettingsPanel } from "@/components/settings/settings-panel";
 import { requireSession } from "@/lib/api";
 
@@ -10,6 +11,7 @@ export default async function SettingsPage() {
     <>
       <Aurora variant="quiet" />
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
+        {session.is_demo && <DemoBanner />}
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
           <p className="text-sm text-muted-foreground">

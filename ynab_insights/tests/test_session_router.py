@@ -22,19 +22,21 @@ VALID_KEY = "sk-ant-" + "a" * 32
 
 @pytest.fixture(autouse=True)
 def patch_upstreams(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make _ping_anthropic and _fetch_ynab_budgets succeed without network."""
+    """Make _ping_provider and _fetch_ynab_budgets succeed without network."""
+    from pydantic import SecretStr
+
     from app.routers import session as session_router
 
-    async def fake_ping(key: str) -> None:
+    async def fake_ping(_key: SecretStr, _provider_name: str) -> None:
         return None
 
-    async def fake_budgets(token: str) -> list[session_router.BudgetOption]:
+    async def fake_budgets(_token: str) -> list[session_router.BudgetOption]:
         return [
             session_router.BudgetOption(id="b-1", name="Main", last_modified_on=datetime.now(UTC)),
             session_router.BudgetOption(id="b-2", name="Side", last_modified_on=datetime.now(UTC)),
         ]
 
-    monkeypatch.setattr(session_router, "_ping_anthropic", fake_ping)
+    monkeypatch.setattr(session_router, "_ping_provider", fake_ping)
     monkeypatch.setattr(session_router, "_fetch_ynab_budgets", fake_budgets)
 
 
@@ -101,7 +103,9 @@ async def test_create_session_rejects_unknown_model(client: AsyncClient) -> None
         },
     )
     assert r.status_code == 400
-    assert r.json()["detail"]["error"] == "unknown_anthropic_model"
+    # v2.6d: error code is provider-agnostic ("unknown_model") since both
+    # Anthropic and OpenAI keys flow through the same validator.
+    assert r.json()["detail"]["error"] == "unknown_model"
 
 
 async def test_create_session_rejects_bad_ynab_format(client: AsyncClient) -> None:
@@ -119,23 +123,27 @@ async def test_create_session_rejects_bad_anthropic_format(client: AsyncClient) 
         json={"ynab_token": VALID_YNAB, "anthropic_key": "no-prefix-here"},
     )
     assert r.status_code == 400
-    assert r.json()["detail"]["error"] == "invalid_anthropic_key_format"
+    # v2.6d: the anthropic-specific format regex got dropped because the
+    # OpenAI key shape is different. Anything that doesn't match either
+    # provider's pattern returns `unknown_provider`.
+    assert r.json()["detail"]["error"] == "unknown_provider"
 
 
 async def test_create_session_propagates_anthropic_failure(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fastapi import HTTPException
+    from pydantic import SecretStr
 
     from app.routers import session as session_router
 
-    async def fail(_key: str) -> None:
+    async def fail(_key: SecretStr, _provider_name: str) -> None:
         raise HTTPException(
             status_code=401,
             detail={"error": "invalid_anthropic_key", "message": "bad"},
         )
 
-    monkeypatch.setattr(session_router, "_ping_anthropic", fail)
+    monkeypatch.setattr(session_router, "_ping_provider", fail)
 
     r = await client.post(
         "/api/session",

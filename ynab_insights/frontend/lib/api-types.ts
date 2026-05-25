@@ -26,31 +26,73 @@ export interface SessionPublic {
   budget_id: string | null;
   budget_name: string | null;
   anthropic_model: string | null;
+  is_demo: boolean;
   created_at: string;
   last_active_at: string;
   last_synced_at: string | null;
   expires_at: string;
 }
 
-export const ANTHROPIC_MODELS: readonly { value: string; label: string; tagline: string }[] = [
-  {
-    value: "claude-haiku-4-5-20251001",
-    label: "Haiku 4.5",
-    tagline: "Fast and inexpensive. Good default.",
-  },
-  {
-    value: "claude-sonnet-4-6",
-    label: "Sonnet 4.6",
-    tagline: "Balanced for the LLM-narrated cards.",
-  },
-  {
-    value: "claude-opus-4-7",
-    label: "Opus 4.7",
-    tagline: "Most capable. Slower and pricier.",
-  },
-];
+export type LlmProvider = "anthropic" | "openai";
 
-export const DEFAULT_ANTHROPIC_MODEL = ANTHROPIC_MODELS[0].value;
+export interface ModelOption {
+  value: string;
+  label: string;
+  tagline: string;
+}
+
+export const MODELS_BY_PROVIDER: Record<LlmProvider, readonly ModelOption[]> = {
+  anthropic: [
+    {
+      value: "claude-haiku-4-5-20251001",
+      label: "Haiku 4.5",
+      tagline: "Fast and inexpensive. Good default.",
+    },
+    {
+      value: "claude-sonnet-4-6",
+      label: "Sonnet 4.6",
+      tagline: "Balanced for the LLM-narrated cards.",
+    },
+    {
+      value: "claude-opus-4-7",
+      label: "Opus 4.7",
+      tagline: "Most capable. Slower and pricier.",
+    },
+  ],
+  openai: [
+    {
+      value: "gpt-5-mini",
+      label: "GPT-5 mini",
+      tagline: "Fast and inexpensive. Good default.",
+    },
+    {
+      value: "gpt-5",
+      label: "GPT-5",
+      tagline: "Balanced for the LLM-narrated cards.",
+    },
+    {
+      value: "o4-mini",
+      label: "o4-mini",
+      tagline: "Reasoning model. Slower but thorough.",
+    },
+  ],
+};
+
+export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProvider, string> = {
+  anthropic: "claude-haiku-4-5-20251001",
+  openai: "gpt-5-mini",
+};
+
+/** Mirror of `app/llm/detect.py::detect_provider`. Returns null on no match. */
+export function detectProvider(key: string): LlmProvider | null {
+  if (/^sk-ant-[A-Za-z0-9_-]{20,256}$/.test(key)) return "anthropic";
+  if (/^sk-(proj-)?[A-Za-z0-9_-]{20,256}$/.test(key)) return "openai";
+  return null;
+}
+
+// Legacy exports kept so anything pre-v2.6d still compiles.
+export const ANTHROPIC_MODELS = MODELS_BY_PROVIDER.anthropic;
+export const DEFAULT_ANTHROPIC_MODEL = DEFAULT_MODEL_BY_PROVIDER.anthropic;
 
 export interface SessionErrorBody {
   error: string;

@@ -94,6 +94,10 @@ async def generate(
     card_type: Annotated[str | None, Query()] = None,
 ) -> GenerateResponse:
     """Run one generator or all of them against the session's snapshot."""
+    if session.is_demo:
+        # Demo insights are baked-in and immutable. Re-running the generators
+        # would either no-op (no LLM key) or trip the rate limiter.
+        return GenerateResponse(run_ids=[])
     if session.snapshot is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
