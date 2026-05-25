@@ -39,8 +39,26 @@ pytest
 - `app/insights/`: generator framework plus one module per card type. Each generator auto-registers on import.
 - `app/demo/`: deterministic snapshot + hand-written insights for the no-key demo path.
 - `app/agent/`: streaming agent loop with per-request key + provider. 20-tool-call cap, 60s wall-clock cap.
-- `app/observability.py`: Prometheus counters + gauges, exposed at `GET /metrics` behind `X-Admin-Token`.
+- `app/observability.py`: Prometheus counters + gauges, exposed at `GET /metrics` behind `X-Admin-Token`. Not public — the Cloudflare Tunnel only routes to Next.js, which has no `/metrics` route. Scrape from inside the VM (see "Operations" below).
 - `frontend/app/welcome/`: onboarding (token entry + budget picker + demo CTA + provider auto-detect).
 - `frontend/app/insights/`, `/explore/`, `/ask/`, `/settings/`.
 
 Design notes (heuristics, thresholds, data model, session lifecycle, rate-limit numbers, provider abstraction, demo) in [`DESIGN.md`](DESIGN.md). Deployment in [`../docs/deployment.md`](../docs/deployment.md).
+
+## Operations
+
+**Read Prometheus metrics from the VM** (the token lives in the container's env, no need to pass it):
+
+```bash
+ssh deploy@<VM>
+cd /home/deploy/stacks/prod  # or stage
+docker compose exec app python -c "
+import os, urllib.request
+req = urllib.request.Request(
+    'http://localhost:8000/metrics',
+    headers={'X-Admin-Token': os.environ['METRICS_ADMIN_TOKEN']},
+)
+print(urllib.request.urlopen(req).read().decode())
+"
+```
+
