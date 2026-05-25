@@ -28,7 +28,7 @@ async function proxy(request: NextRequest, ctx: { params: Promise<{ path: string
   const search = request.nextUrl.search;
   const url = `${BACKEND_URL}${upstreamPath}${search}`;
 
-  const upstreamHeaders = buildUpstreamHeaders(request);
+  const upstreamHeaders = buildUpstreamHeaders(request.headers);
 
   // Read body once. GET/HEAD have no body; everything else may.
   const method = request.method;

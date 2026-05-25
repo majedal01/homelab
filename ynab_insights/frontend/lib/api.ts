@@ -13,6 +13,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import type { SessionPublic } from "./api-types";
+import { buildUpstreamHeaders } from "./proxy-headers";
 
 export type { SessionPublic };
 
@@ -47,20 +48,35 @@ export async function apiFetch<T>(
   const { throwOnError = true, revalidate = 0, headers: extraHeaders, ...init } = options;
   const url = `${BACKEND_URL}${path.startsWith("/") ? path : `/${path}`}`;
 
+  // Derive the upstream Headers via the same helper the browser-facing
+  // proxy routes use. The incoming RSC request carries X-Forwarded-*
+  // from the Cloudflare Tunnel; without forwarding them here, FastAPI's
+  // v2.6e ProxyHeaderMiddleware fires "missing X-Forwarded-Proto"
+  // warnings for every server-rendered page load.
+  const incomingHeaders = await headers();
+  const upstreamHeaders = buildUpstreamHeaders(incomingHeaders);
+  upstreamHeaders.set("content-type", "application/json");
+
+  // `cookies()` reflects the parsed request cookie jar, which is what
+  // FastAPI expects in the `Cookie` header.
   const cookieStore = await cookies();
   const cookieHeader = cookieStore
     .getAll()
     .map((c) => `${c.name}=${c.value}`)
     .join("; ");
+  if (cookieHeader) upstreamHeaders.set("cookie", cookieHeader);
+
+  // Caller-supplied headers win over auto-derived ones.
+  if (extraHeaders) {
+    for (const [k, v] of Object.entries(extraHeaders as Record<string, string>)) {
+      upstreamHeaders.set(k, v);
+    }
+  }
 
   const response = await fetch(url, {
     ...init,
     next: { revalidate },
-    headers: {
-      "content-type": "application/json",
-      ...(cookieHeader ? { cookie: cookieHeader } : {}),
-      ...(extraHeaders ?? {}),
-    },
+    headers: upstreamHeaders,
   });
 
   if (response.status === 401) {
