@@ -161,9 +161,10 @@ export interface SpendingAnomalyData {
   card_type: "spending_anomaly";
   category_id: string;
   category_name: string;
-  week_start: string;
-  week_end: string;
-  current_week_spend_cents: number;
+  cycle: "weekly" | "monthly";
+  period_start: string;
+  period_end: string;
+  current_period_spend_cents: number;
   baseline_mean_cents: number;
   baseline_stdev_cents: number;
   z_score: number;

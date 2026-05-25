@@ -60,9 +60,10 @@ class SpendingAnomalyData(BaseModel):
     card_type: Literal["spending_anomaly"] = "spending_anomaly"
     category_id: str
     category_name: str
-    week_start: date
-    week_end: date
-    current_week_spend_cents: int
+    cycle: Literal["weekly", "monthly"]
+    period_start: date
+    period_end: date
+    current_period_spend_cents: int
     baseline_mean_cents: int
     baseline_stdev_cents: int
     z_score: float
