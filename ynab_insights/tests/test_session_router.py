@@ -103,7 +103,9 @@ async def test_create_session_rejects_unknown_model(client: AsyncClient) -> None
         },
     )
     assert r.status_code == 400
-    assert r.json()["detail"]["error"] == "unknown_anthropic_model"
+    # v2.6d: error code is provider-agnostic ("unknown_model") since both
+    # Anthropic and OpenAI keys flow through the same validator.
+    assert r.json()["detail"]["error"] == "unknown_model"
 
 
 async def test_create_session_rejects_bad_ynab_format(client: AsyncClient) -> None:
@@ -121,7 +123,10 @@ async def test_create_session_rejects_bad_anthropic_format(client: AsyncClient) 
         json={"ynab_token": VALID_YNAB, "anthropic_key": "no-prefix-here"},
     )
     assert r.status_code == 400
-    assert r.json()["detail"]["error"] == "invalid_anthropic_key_format"
+    # v2.6d: the anthropic-specific format regex got dropped because the
+    # OpenAI key shape is different. Anything that doesn't match either
+    # provider's pattern returns `unknown_provider`.
+    assert r.json()["detail"]["error"] == "unknown_provider"
 
 
 async def test_create_session_propagates_anthropic_failure(
