@@ -21,4 +21,7 @@ services:
       APP_VERSION: ${APP_VERSION:-unknown}
       SESSION_SECRET_KEY: ${SESSION_SECRET_KEY:?SESSION_SECRET_KEY is required}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
+      # v2.6e: warn-only proxy-header check + metrics token gate.
+      REQUIRE_PROXY_HEADERS: ${REQUIRE_PROXY_HEADERS:-false}
+      METRICS_ADMIN_TOKEN: ${METRICS_ADMIN_TOKEN:-}
     restart: unless-stopped

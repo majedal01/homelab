@@ -70,6 +70,22 @@ jobs:
             infra/compose/stage/docker-compose.yml \
             "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}:/home/deploy/stacks/stage/docker-compose.yml"
 
+      - name: Sync env vars into .env on VM
+        # Persist the v2.6e env vars so they survive container restarts
+        # outside this deploy. REQUIRE_PROXY_HEADERS is idempotent (set
+        # if missing); METRICS_ADMIN_TOKEN is rotated via GitHub Secrets,
+        # so we always replace it. /metrics returns 404 gracefully if
+        # the secret is unset.
+        env:
+          ADMIN_TOKEN: ${{ secrets.METRICS_ADMIN_TOKEN }}
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
+            "cd /home/deploy/stacks/stage && \
+             grep -q '^REQUIRE_PROXY_HEADERS=' .env || echo 'REQUIRE_PROXY_HEADERS=true' >> .env && \
+             sed -i '/^METRICS_ADMIN_TOKEN=/d' .env && \
+             printf 'METRICS_ADMIN_TOKEN=%s\n' '${ADMIN_TOKEN}' >> .env"
+
       - name: Pull image and restart stack
         # `--remove-orphans` kills containers for services that used to be in
         # the compose file but aren't anymore (e.g. the v2.4 `db` service that
