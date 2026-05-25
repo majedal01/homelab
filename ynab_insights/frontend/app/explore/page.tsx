@@ -1,4 +1,5 @@
 import { Aurora } from "@/components/brand/aurora";
+import { DemoBanner } from "@/components/demo/demo-banner";
 import { ExploreTabs } from "@/components/explore/explore-tabs";
 import { AccountsTab } from "@/components/explore/accounts-tab";
 import { CategoriesTab } from "@/components/explore/categories-tab";
@@ -113,6 +114,7 @@ export default async function ExplorePage({
     <>
       <Aurora variant="quiet" />
       <div className="mx-auto flex max-w-5xl flex-col gap-4">
+        {session.is_demo && <DemoBanner />}
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Explore</h1>
           <p className="text-sm text-muted-foreground">

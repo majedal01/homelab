@@ -31,6 +31,17 @@ async def ask(
     session: CurrentSessionDep,
     settings: SettingsDep,
 ) -> StreamingResponse:
+    if session.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "demo_mode_ask_disabled",
+                "message": (
+                    "Ask needs your own LLM key. Sign in with your YNAB + Anthropic "
+                    "(or OpenAI) credentials to use it."
+                ),
+            },
+        )
     if session.snapshot is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

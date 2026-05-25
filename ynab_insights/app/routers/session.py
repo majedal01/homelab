@@ -12,11 +12,20 @@ import re
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-import anthropic
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, SecretStr
 
+from app.demo import build_demo_insights, build_demo_snapshot
+from app.llm import (
+    ALLOWED_MODELS,
+    DEFAULT_MODEL_FOR_PROVIDER,
+    InvalidApiKeyError,
+    ProviderBillingError,
+    ProviderUnavailableError,
+    build_provider,
+    detect_provider,
+)
 from app.services.ynab_client import YNABClient, fetch_snapshot
 from app.session.middleware import CurrentSessionDep
 from app.session.models import SessionPublic, UserSession
@@ -26,21 +35,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/session", tags=["session"])
 
-# Format gates: cheap checks before any network call.
+# Cheap format gate before any network call.
 YNAB_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}$")
-ANTHROPIC_KEY_RE = re.compile(r"^sk-ant-[A-Za-z0-9_-]{20,256}$")
-
-# Models the user can pick on the welcome screen. Keep this list in sync with
-# the dropdown in `frontend/components/welcome/onboarding-card.tsx`. New
-# Anthropic releases need a code change here, intentionally: an unknown model
-# id would silently 404 at the Anthropic SDK call site.
-ALLOWED_ANTHROPIC_MODELS = frozenset(
-    {
-        "claude-opus-4-7",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5-20251001",
-    }
-)
 
 
 StoreDep = Annotated[SessionStore, Depends(get_session_store)]
@@ -50,10 +46,12 @@ class CreateSessionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ynab_token: SecretStr
-    anthropic_key: SecretStr
-    # Optional. Server validates against ALLOWED_ANTHROPIC_MODELS. When
-    # omitted, the session falls through to Settings.anthropic_model at
-    # call time (no need to bake the default into UserSession).
+    # Backwards-compat alias: pre-v2.6d clients still send `anthropic_key`.
+    # New v2.6d clients send `llm_key` which can be Anthropic OR OpenAI.
+    llm_key: SecretStr | None = None
+    anthropic_key: SecretStr | None = None
+    # Optional. Server validates against ALLOWED_MODELS[provider]. When
+    # omitted, the session falls through to DEFAULT_MODEL_FOR_PROVIDER.
     anthropic_model: str | None = None
 
 
@@ -91,32 +89,36 @@ def _bad(code: str, message: str, http_status: int = status.HTTP_400_BAD_REQUEST
     return HTTPException(status_code=http_status, detail={"error": code, "message": message})
 
 
-async def _ping_anthropic(key: str) -> None:
-    """Cheapest meaningful liveness check: 1-token messages.create.
+async def _ping_provider(key: SecretStr, provider_name: str) -> None:
+    """Validate the key by hitting the provider's cheapest endpoint.
 
-    Raises HTTPException with a specific error code on failure.
+    Raises HTTPException with a specific error code on failure. Per-provider
+    failure mapping happens inside the provider SDK; this just translates
+    `LlmProviderError` subclasses into our session-router error taxonomy.
     """
-    client = anthropic.AsyncAnthropic(api_key=key)
+
+    inferred = detect_provider(key.get_secret_value())
+    if inferred is None:
+        raise _bad("unknown_provider", "That key didn't match a known provider.", 400)
+    llm = build_provider(inferred, key, DEFAULT_MODEL_FOR_PROVIDER[inferred])
     try:
-        await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1,
-            messages=[{"role": "user", "content": "ok"}],
-        )
-    except anthropic.AuthenticationError as e:
-        raise _bad("invalid_anthropic_key", "That Anthropic key was rejected.", 401) from e
-    except anthropic.PermissionDeniedError as e:
+        await llm.ping()
+    except InvalidApiKeyError as e:
         raise _bad(
-            "anthropic_billing",
-            "Anthropic returned a billing or permission error.",
+            f"invalid_{provider_name}_key",
+            f"That {provider_name.title()} key was rejected.",
+            401,
+        ) from e
+    except ProviderBillingError as e:
+        raise _bad(
+            f"{provider_name}_billing",
+            f"{provider_name.title()} returned a billing or permission error.",
             402,
         ) from e
-    except anthropic.APIError as e:
-        # Hide upstream details from the response; log the type only.
-        logger.info("anthropic ping failed: %s", type(e).__name__)
+    except ProviderUnavailableError as e:
         raise _bad(
-            "anthropic_unavailable",
-            "Couldn't reach Anthropic. Try again in a moment.",
+            f"{provider_name}_unavailable",
+            f"Couldn't reach {provider_name.title()}. Try again in a moment.",
             502,
         ) from e
 
@@ -158,25 +160,36 @@ async def create_session(
 ) -> CreateSessionResponse:
     """Validate both keys, fetch budgets, mint a session, set the cookie."""
     ynab_token = body.ynab_token.get_secret_value()
-    anthropic_key = body.anthropic_key.get_secret_value()
+    # Accept either field for the LLM key. New v2.6d clients send `llm_key`;
+    # older clients still send `anthropic_key`. Same SecretStr type either way.
+    llm_key_secret = body.llm_key or body.anthropic_key
+    if llm_key_secret is None:
+        raise _bad("missing_llm_key", "An Anthropic or OpenAI key is required.")
+    llm_key = llm_key_secret.get_secret_value()
 
     if not YNAB_TOKEN_RE.match(ynab_token):
         raise _bad("invalid_ynab_token_format", "YNAB token format looks wrong.")
-    if not ANTHROPIC_KEY_RE.match(anthropic_key):
-        raise _bad("invalid_anthropic_key_format", "Anthropic keys start with 'sk-ant-'.")
-    if body.anthropic_model is not None and body.anthropic_model not in ALLOWED_ANTHROPIC_MODELS:
+
+    provider = detect_provider(llm_key)
+    if provider is None:
         raise _bad(
-            "unknown_anthropic_model",
-            "That model isn't supported. Pick Haiku, Sonnet, or Opus.",
+            "unknown_provider",
+            "That key didn't match a known provider. Expected sk-ant-… or sk-…",
+        )
+    if body.anthropic_model is not None and body.anthropic_model not in ALLOWED_MODELS[provider]:
+        raise _bad(
+            "unknown_model",
+            f"That model isn't supported for {provider}. "
+            f"Pick one of: {', '.join(sorted(ALLOWED_MODELS[provider]))}.",
         )
 
-    await _ping_anthropic(anthropic_key)
+    await _ping_provider(llm_key_secret, provider)
     budgets = await _fetch_ynab_budgets(ynab_token)
 
     session = UserSession(
         sid=new_sid(),
         ynab_token=SecretStr(ynab_token),
-        anthropic_key=SecretStr(anthropic_key),
+        anthropic_key=llm_key_secret,
         anthropic_model=body.anthropic_model,
     )
     store.create(session)
@@ -197,6 +210,44 @@ async def create_session(
         created_at=session.created_at,
         expires_at=store.expires_at(session),
     )
+
+
+@router.post("/demo", response_model=SessionPublic)
+async def create_demo_session(
+    request: Request,
+    response: Response,
+    store: StoreDep,
+) -> SessionPublic:
+    """Mint a demo session with pre-loaded sample data. No tokens, no
+    upstream calls, no LLM cost. The visitor lands on a populated feed
+    and can explore Insights + Explore. Ask is disabled in demo mode."""
+    snapshot = build_demo_snapshot()
+    insights = build_demo_insights(snapshot)
+    session = UserSession(
+        sid=new_sid(),
+        # SecretStr requires a value; empty string is fine because the demo
+        # code path never reads it (is_demo gates every LLM/YNAB call site).
+        ynab_token=SecretStr(""),
+        anthropic_key=SecretStr(""),
+        is_demo=True,
+        budget_id=snapshot.budget_id,
+        budget_name=snapshot.budget_name,
+        snapshot=snapshot,
+        insights=insights,
+        last_synced_at=snapshot.fetched_at,
+    )
+    store.create(session)
+
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=store.sign(session.sid),
+        max_age=store.cookie_max_age,
+        httponly=True,
+        secure=_should_use_secure_cookie(request),
+        samesite="strict",
+        path="/",
+    )
+    return _to_public(session, store)
 
 
 @router.post("/budget", response_model=SessionPublic)
@@ -246,6 +297,10 @@ async def get_session(session: CurrentSessionDep, store: StoreDep) -> SessionPub
 @router.post("/refresh", response_model=SessionPublic)
 async def refresh_session(session: CurrentSessionDep, store: StoreDep) -> SessionPublic:
     """Re-fetch the YNAB snapshot for the active budget."""
+    if session.is_demo:
+        # Refresh would call YNAB with empty tokens. Just bump last_active.
+        session.last_active_at = datetime.now(UTC)
+        return _to_public(session, store)
     if session.budget_id is None:
         raise _bad("no_budget_selected", "Pick a budget before refreshing.", 409)
     try:
@@ -279,6 +334,7 @@ def _to_public(session: UserSession, store: SessionStore) -> SessionPublic:
         budget_id=session.budget_id,
         budget_name=session.budget_name,
         anthropic_model=session.anthropic_model,
+        is_demo=session.is_demo,
         created_at=session.created_at,
         last_active_at=session.last_active_at,
         last_synced_at=session.last_synced_at,

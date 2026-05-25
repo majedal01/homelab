@@ -1,6 +1,7 @@
 import { apiFetch, requireSession } from "@/lib/api";
 import type { InsightResponse } from "@/lib/api-types";
 import { Aurora } from "@/components/brand/aurora";
+import { DemoBanner } from "@/components/demo/demo-banner";
 import { AutoRegen } from "@/components/insights/auto-regen";
 import { CardTypeFilter } from "@/components/insights/card-type-filter";
 import { InsightFeed } from "@/components/insights/feed";
@@ -59,6 +60,7 @@ export default async function InsightsPage({
     <>
       <Aurora variant="primary" />
       <div className="mx-auto flex max-w-4xl flex-col gap-4">
+        {session.is_demo && <DemoBanner />}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
