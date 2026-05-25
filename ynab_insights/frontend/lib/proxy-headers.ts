@@ -1,30 +1,38 @@
 /**
- * Build the `Headers` we send upstream to FastAPI from a browser-facing
+ * Build the `Headers` we send upstream to FastAPI from any incoming
  * Next.js request.
  *
- * The Cloudflare Tunnel terminates TLS and routes to the Next container;
- * Next then proxies `/api/*` to FastAPI on the compose-internal network.
- * FastAPI needs the original protocol / host / client IP to set the
- * cookie Secure flag, recognize the public hostname, and bucket rate
- * limits by real client address — but Next.js doesn't auto-forward
- * anything beyond the request method and body.
+ * Two call paths use this:
+ *
+ * 1. Browser → catch-all proxy at `app/api/[...path]/route.ts` and SSE
+ *    handler at `app/api/ask/route.ts`. They pass `request.headers`
+ *    (NextRequest.headers, a `Headers`).
+ * 2. RSC → FastAPI via `lib/api.ts:apiFetch`. It passes
+ *    `await headers()` from `next/headers` (a `ReadonlyHeaders`,
+ *    iteration-compatible with `Headers`).
+ *
+ * The Cloudflare Tunnel terminates TLS and routes to the Next
+ * container; Next then proxies (browser path) or directly fetches
+ * (RSC path) to FastAPI on the compose-internal network. FastAPI
+ * needs the original protocol / host / client IP to set the cookie
+ * Secure flag, recognize the public hostname, and bucket rate limits
+ * by real client address — but Next.js doesn't auto-forward those.
  *
  * Trust model:
  * - Cloudflare strips client-supplied `CF-Connecting-IP` and `CF-Ray`
- *   before forwarding, so seeing those headers reliably means "request
- *   came through the tunnel."
- * - We explicitly STRIP every inbound `X-Forwarded-*` before re-setting
- *   them. A browser could trivially try to spoof X-Forwarded-Proto=https
- *   in dev; we always derive the value ourselves.
+ *   before forwarding, so seeing those headers reliably means
+ *   "request came through the tunnel."
+ * - We explicitly STRIP every inbound `X-Forwarded-*` before re-
+ *   setting them. A browser could trivially try to spoof
+ *   X-Forwarded-Proto=https in dev; we always derive the value
+ *   ourselves from the trusted signals.
  */
 
-import type { NextRequest } from "next/server";
-
-/** Build upstream headers, preserving everything safe and re-deriving the
- *  forwarded chain server-side. */
-export function buildUpstreamHeaders(request: NextRequest): Headers {
-  const incoming = request.headers;
-
+// `Headers` is the broad standard interface. NextRequest.headers and
+// ReadonlyHeaders from `next/headers` both satisfy the parts we use
+// (entries(), get()). Typing as `Headers` here keeps the helper
+// reusable across both call paths.
+export function buildUpstreamHeaders(incoming: Headers): Headers {
   // CF sets these on every tunnel-routed request and strips any
   // client-supplied versions. Their presence is the "behind CF" signal.
   const cfClientIp = incoming.get("cf-connecting-ip");

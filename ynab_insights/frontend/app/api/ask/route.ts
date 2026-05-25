@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
-  const upstreamHeaders = buildUpstreamHeaders(request);
+  const upstreamHeaders = buildUpstreamHeaders(request.headers);
   // SSE always sends JSON; ensure the upstream sees it even if the
   // browser omitted content-type for some reason.
   if (!upstreamHeaders.has("content-type")) {

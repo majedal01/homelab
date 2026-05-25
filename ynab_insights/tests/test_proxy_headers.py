@@ -3,15 +3,19 @@
 The two "negative" tests (disabled + header-present) go through the HTTP
 layer to verify the middleware is wired into the ASGI stack correctly.
 
-The "positive" tests bypass HTTP and call `_maybe_warn` directly:
-httpx's ASGITransport (or some Starlette internal) makes it unreliable
-to reproduce an *absent* X-Forwarded-Proto in a transport test — the
-header behaves as if injected at the ASGI boundary depending on
-versions and test ordering. Hitting `_maybe_warn` directly tests the
-unit of behavior we care about (throttle + dict mutation) without
-fighting transport quirks. The observable is `_LAST_WARN_AT`, the
-same module-level dict the middleware uses to throttle. Dictionary
-state is unambiguous; log-record capture isn't.
+The "positive" tests bypass HTTP and call `_maybe_warn` directly. The
+observable is `_LAST_WARN_AT`, the module-level throttle dict the
+middleware mutates. Dictionary state is unambiguous; log-record capture
+isn't (the JSON formatter installed by setup_logging() at import time
+races with caplog's root handler).
+
+A previous round of these tests asserted log records and failed in CI
+for what looked like multiple separate reasons. The actual underlying
+cause was a bug in the middleware's throttle sentinel: `.get(key, 0.0)`
+meant `now - 0.0 < 60` would suppress the FIRST warning on a fresh
+container where `time.monotonic()` hadn't yet reached 60s. Fixed in
+the same commit that introduced these tests; the dict-state assertion
+catches a regression of that exact bug.
 """
 
 from __future__ import annotations

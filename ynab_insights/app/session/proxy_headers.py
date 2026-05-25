@@ -57,8 +57,14 @@ class ProxyHeaderMiddleware(BaseHTTPMiddleware):
         # Bucket on the path so a flood to one endpoint doesn't silence
         # warnings from a different misconfigured endpoint.
         key = request.url.path
-        last = _LAST_WARN_AT.get(key, 0.0)
-        if now - last < _WARN_INTERVAL_S:
+        # `None` is the "never warned for this path yet" sentinel. Using
+        # 0.0 was wrong: time.monotonic() can legitimately be < 60 just
+        # after process start (small/fresh container), so `now - 0.0 <
+        # _WARN_INTERVAL_S` would silently suppress the very first
+        # warning per path. None forces the "fire now" branch on the
+        # first call.
+        last = _LAST_WARN_AT.get(key)
+        if last is not None and now - last < _WARN_INTERVAL_S:
             return
         _LAST_WARN_AT[key] = now
         client = request.client.host if request.client else "unknown"
