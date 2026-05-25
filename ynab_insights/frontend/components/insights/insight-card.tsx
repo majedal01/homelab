@@ -87,12 +87,16 @@ export function InsightCard({
       }}
       layout
       layoutId={`insight-card-${insight.id}`}
-      className="relative"
+      className="relative h-full"
     >
       <Link
         href={`/insights/${insight.id}`}
         className={cn(
-          "group block rounded-lg border bg-card/80 backdrop-blur p-5 shadow-sm",
+          // h-full + flex column lets the body fill any extra row height
+          // the grid hands the cell, so two cards side-by-side always
+          // share a baseline. Without this, a short card looks like it
+          // has a phantom gap under it.
+          "group flex h-full flex-col rounded-lg border bg-card/80 backdrop-blur p-5 shadow-sm",
           "transition-all duration-200",
           "hover:-translate-y-0.5 hover:shadow-md hover:border-foreground/30",
         )}

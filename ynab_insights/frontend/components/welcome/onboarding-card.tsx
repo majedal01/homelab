@@ -151,7 +151,7 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
             <div>
               <h1 className="text-xl font-semibold tracking-tight">Sign in with your keys.</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Bring your own YNAB token and Anthropic key. We hold them in memory only.
+                Bring your own YNAB token and API key. We hold them in memory only.
               </p>
             </div>
             <Field
@@ -165,7 +165,7 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
             />
             <Field
               name="anthropic_key"
-              label="LLM API key (Anthropic or OpenAI)"
+              label="API key"
               placeholder="sk-ant-... or sk-..."
               hint={
                 provider === "anthropic"
