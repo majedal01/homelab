@@ -97,8 +97,9 @@ class CategoryDriftData(BaseModel):
     card_type: Literal["category_drift"] = "category_drift"
     category_id: str
     category_name: str
+    comparison_kind: Literal["quarter_over_quarter", "year_over_year"]
     trailing_quarter_avg_cents: int  # positive net spend per month
-    prior_three_quarters_avg_cents: int
+    prior_three_quarters_avg_cents: int  # baseline avg; meaning depends on comparison_kind
     drift_pct: float  # signed; positive = drifted up
     drift_cents_per_month: int  # signed
     direction: Literal["up", "down"]

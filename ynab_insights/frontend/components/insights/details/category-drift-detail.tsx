@@ -15,6 +15,9 @@ import type { CategoryDriftData } from "@/lib/api-types";
 export function CategoryDriftDetail({ data }: { data: CategoryDriftData }) {
   const isUp = data.direction === "up";
   const pct = `${isUp ? "+" : "−"}${Math.round(Math.abs(data.drift_pct) * 100)}%`;
+  const isYoY = data.comparison_kind === "year_over_year";
+  const driftLabel = isYoY ? "Drift vs same period last year" : "Drift vs prior 9 months";
+  const priorLabel = isYoY ? "Same period, last year" : "Prior 9 months avg";
 
   const chartData = React.useMemo(() => {
     const labels = ["−11m", "−10m", "−9m", "−8m", "−7m", "−6m", "−5m", "−4m", "−3m", "−2m", "−1m", "now"];
@@ -28,7 +31,7 @@ export function CategoryDriftDetail({ data }: { data: CategoryDriftData }) {
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-3">
         <Stat
-          label="Drift vs prior year"
+          label={driftLabel}
           value={pct}
           tone={isUp ? "destructive" : "positive"}
         />
@@ -37,7 +40,7 @@ export function CategoryDriftDetail({ data }: { data: CategoryDriftData }) {
           value={`${formatDollars(data.trailing_quarter_avg_cents)} /mo`}
         />
         <Stat
-          label="Prior 3 quarters avg"
+          label={priorLabel}
           value={`${formatDollars(data.prior_three_quarters_avg_cents)} /mo`}
         />
       </div>

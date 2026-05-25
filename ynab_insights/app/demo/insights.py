@@ -229,6 +229,7 @@ def _category_drift(today: date, now: datetime) -> Insight:
             "card_type": "category_drift",
             "category_id": "cat-dining",
             "category_name": "Dining out",
+            "comparison_kind": "quarter_over_quarter",
             "trailing_quarter_avg_cents": 310_00,
             "prior_three_quarters_avg_cents": 230_00,
             "drift_pct": 0.348,

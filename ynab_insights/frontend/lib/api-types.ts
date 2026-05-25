@@ -211,6 +211,7 @@ export interface CategoryDriftData {
   card_type: "category_drift";
   category_id: string;
   category_name: string;
+  comparison_kind: "quarter_over_quarter" | "year_over_year";
   trailing_quarter_avg_cents: number;
   prior_three_quarters_avg_cents: number;
   drift_pct: number;
