@@ -161,9 +161,10 @@ export interface SpendingAnomalyData {
   card_type: "spending_anomaly";
   category_id: string;
   category_name: string;
-  week_start: string;
-  week_end: string;
-  current_week_spend_cents: number;
+  cycle: "weekly" | "monthly";
+  period_start: string;
+  period_end: string;
+  current_period_spend_cents: number;
   baseline_mean_cents: number;
   baseline_stdev_cents: number;
   z_score: number;
@@ -180,6 +181,7 @@ export interface CategoryRate {
 export interface CashflowForecastData {
   card_type: "cashflow_forecast";
   starting_balance_cents: number;
+  credit_card_debt_cents: number;
   daily_net_cents: number;
   projected_30d_cents: number;
   projected_60d_cents: number;
@@ -210,6 +212,7 @@ export interface CategoryDriftData {
   card_type: "category_drift";
   category_id: string;
   category_name: string;
+  comparison_kind: "quarter_over_quarter" | "year_over_year";
   trailing_quarter_avg_cents: number;
   prior_three_quarters_avg_cents: number;
   drift_pct: number;

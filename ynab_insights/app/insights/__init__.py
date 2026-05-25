@@ -22,19 +22,17 @@ from app.insights import year_in_money as _year_in_money  # noqa: F401
 from app.insights.base import (
     GeneratedInsight,
     InsightGenerator,
-    RunOutcome,
     all_generators,
-    execute_generator,
     get_generator,
     register_generator,
+    run_all_generators,
 )
 
 __all__ = [
     "GeneratedInsight",
     "InsightGenerator",
-    "RunOutcome",
     "all_generators",
-    "execute_generator",
     "get_generator",
     "register_generator",
+    "run_all_generators",
 ]

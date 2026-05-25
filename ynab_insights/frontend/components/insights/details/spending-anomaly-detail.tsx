@@ -7,15 +7,20 @@ export function SpendingAnomalyDetail({
   data: SpendingAnomalyData;
 }) {
   const pct = Math.abs(data.deviation_ratio) * 100;
+  const isMonthly = data.cycle === "monthly";
+  const currentLabel = isMonthly ? "This month" : "This week";
+  const baselineLabel = isMonthly ? "12mo average" : "12w average";
+  const meanLabel = isMonthly ? "12-month mean" : "12-week mean";
+  const txnLabel = isMonthly ? "Top transactions this month" : "Top transactions this week";
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-4">
         <Stat
-          label="This week"
-          value={formatDollars(data.current_week_spend_cents)}
+          label={currentLabel}
+          value={formatDollars(data.current_period_spend_cents)}
         />
         <Stat
-          label="12w average"
+          label={baselineLabel}
           value={formatDollars(data.baseline_mean_cents)}
         />
         <Stat
@@ -25,13 +30,13 @@ export function SpendingAnomalyDetail({
         <Stat label="z-score" value={data.z_score.toFixed(2)} />
       </div>
       <p className="text-sm text-muted-foreground">
-        {pct.toFixed(0)}% {data.z_score > 0 ? "above" : "below"} the 12-week mean for{" "}
+        {pct.toFixed(0)}% {data.z_score > 0 ? "above" : "below"} the {meanLabel} for{" "}
         <span className="text-foreground">{data.category_name}</span>, between{" "}
-        {data.week_start} and {data.week_end}.
+        {data.period_start} and {data.period_end}.
       </p>
       <div>
         <h2 className="text-sm font-semibold tracking-tight">
-          Top transactions this week
+          {txnLabel}
         </h2>
         <table className="mt-3 w-full text-sm">
           <thead>

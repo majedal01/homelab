@@ -86,9 +86,10 @@ def _spending_anomaly(today: date, now: datetime) -> Insight:
             "card_type": "spending_anomaly",
             "category_id": "cat-groceries",
             "category_name": "Groceries",
-            "week_start": week_start.isoformat(),
-            "week_end": week_end.isoformat(),
-            "current_week_spend_cents": 31000,
+            "cycle": "weekly",
+            "period_start": week_start.isoformat(),
+            "period_end": week_end.isoformat(),
+            "current_period_spend_cents": 31000,
             "baseline_mean_cents": 11500,
             "baseline_stdev_cents": 1850,
             "z_score": 10.54,
@@ -115,17 +116,18 @@ def _cashflow_forecast(budget_id: str, today: date, now: datetime) -> Insight:
         budget_id=budget_id,
         card_type="cashflow_forecast",
         dedup_key=f"forecast:{budget_id}:{iso.year}-W{iso.week:02d}",
-        title="Projected 90-day balance: $26,400",
+        title="Projected 90-day cash: $27,700",
         summary=(
-            "At your last 90 days' pace, balances would grow to $26,400 from today's $21,469."
+            "At your last 90 days' pace, cash balances would grow to $27,700 from today's $22,755."
         ),
         structured_data={
             "card_type": "cashflow_forecast",
-            "starting_balance_cents": 21_469_00,
+            "starting_balance_cents": 22_755_00,
+            "credit_card_debt_cents": 1_286_00,
             "daily_net_cents": 5500,
-            "projected_30d_cents": 23_119_00,
-            "projected_60d_cents": 24_769_00,
-            "projected_90d_cents": 26_419_00,
+            "projected_30d_cents": 24_405_00,
+            "projected_60d_cents": 26_055_00,
+            "projected_90d_cents": 27_705_00,
             "lookback_days": 90,
             "lookback_income_cents": 14_400_00,
             "lookback_spending_cents": 9_450_00,
@@ -228,6 +230,7 @@ def _category_drift(today: date, now: datetime) -> Insight:
             "card_type": "category_drift",
             "category_id": "cat-dining",
             "category_name": "Dining out",
+            "comparison_kind": "quarter_over_quarter",
             "trailing_quarter_avg_cents": 310_00,
             "prior_three_quarters_avg_cents": 230_00,
             "drift_pct": 0.348,
@@ -242,39 +245,28 @@ def _category_drift(today: date, now: datetime) -> Insight:
 
 
 def _year_in_money(budget_id: str, today: date, now: datetime) -> Insight:
-    # Use last completed calendar quarter so the card has period boundaries
-    # that read naturally regardless of when the demo loads.
-    qm = ((today.month - 1) // 3) * 3  # last completed quarter end month (0=12 fallback below)
-    if qm == 0:
-        year = today.year - 1
-        start = date(year, 10, 1)
-        end = date(year, 12, 31)
-        label = f"{year}-Q4"
-    else:
-        start_month = qm - 2
-        start = date(today.year, start_month, 1)
-        # Last day of the previous-quarter end month.
-        next_month = qm + 1
-        end_year = today.year + (1 if next_month > 12 else 0)
-        end_month = (next_month - 1) % 12 + 1
-        end = date(end_year, end_month, 1) - timedelta(days=1)
-        label = f"{today.year}-Q{qm // 3}"
+    # Demo data spans ~14 months, so we always have enough history for the
+    # annual variant. End is today; start is 365 days back, matching the
+    # real generator's window choice.
+    start = today - timedelta(days=365)
+    end = today
+    label = "last 12 months"
 
     return Insight(
         id=6,
         budget_id=budget_id,
         card_type="year_in_money",
-        dedup_key=f"year_in_money:{budget_id}:{label}",
-        title=f"Your quarter in money, {label}",
+        dedup_key=f"year_in_money:{budget_id}:annual:{end.strftime('%Y-%m')}",
+        title=f"Your year in money: {label}",
         summary=(
-            f"Across {label}, income totaled $14,400 and spending totaled $9,450. "
+            f"Across the {label}, income totaled $14,400 and spending totaled $9,450. "
             "The difference: $4,950. Rent was the largest spending category at $4,950. "
             "Largest single moment: $812 to Kaiser Permanente."
         ),
         structured_data={
             "card_type": "year_in_money",
             "period_label": label,
-            "period_kind": "quarterly",
+            "period_kind": "annual",
             "period_start": start.isoformat(),
             "period_end": end.isoformat(),
             "total_income_cents": 14_400_00,

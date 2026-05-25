@@ -11,7 +11,7 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from app.insights import all_generators, execute_generator, get_generator
+from app.insights import all_generators, get_generator, run_all_generators
 from app.insights.base import Insight
 from app.insights.schemas import (
     CardType,
@@ -122,26 +122,18 @@ async def generate(
     next_id = max((i.id for i in insights_list), default=0) + 1
     next_run_id = max((r.id for r in runs_list), default=0) + 1
 
-    run_ids: list[int] = []
-    for gen_cls in targets:
-        outcome, produced, record = await execute_generator(
-            gen_cls,
-            session.snapshot,
-            session.anthropic_key,
-            next_id=next_id,
-            next_run_id=next_run_id,
-            existing=by_key,
-            anthropic_model=session.anthropic_model,
-        )
-        for ins in produced:
-            by_key[(ins.budget_id, ins.dedup_key)] = ins
-        next_id = max((i.id for i in by_key.values()), default=0) + 1
-        runs_list.append(record)
-        next_run_id += 1
-        run_ids.append(outcome.run_id)
+    merged, records, run_ids = await run_all_generators(
+        generators=targets,
+        snapshot=session.snapshot,
+        anthropic_key=session.anthropic_key,
+        anthropic_model=session.anthropic_model,
+        existing=by_key,
+        next_id=next_id,
+        next_run_id=next_run_id,
+    )
 
-    session.insights = list(by_key.values())
-    session.runs = runs_list
+    session.insights = merged
+    session.runs = runs_list + records
     session.last_active_at = datetime.now(UTC)
 
     return GenerateResponse(run_ids=run_ids)

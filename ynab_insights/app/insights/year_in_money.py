@@ -1,7 +1,15 @@
-"""Year in Money generator.
+"""Year in Money generator (v2.6f).
 
-Annual (Jan 1) and quarterly (Apr 1 / Jul 1 / Oct 1) retrospective card.
-Deterministic Python assembles the stats; the LLM writes the narrative.
+On-demand retrospective. Picks the widest window the snapshot supports:
+
+- Snapshot spans >= 365 days -> annual variant ("Your last 12 months").
+- Snapshot spans >= 90 days  -> quarterly variant ("Your last 90 days").
+- Less than 90 days -> no card.
+
+Calendar-anchored triggers (Jan 1 for annual, Apr/Jul/Oct 1 for quarterly)
+were dropped in v2.6f. A stateless, on-demand app shouldn't gate the
+biggest summary card on the user happening to log in on the first of a
+quarter — most sessions never saw it.
 """
 
 from __future__ import annotations
@@ -10,7 +18,7 @@ import logging
 from calendar import monthrange
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from typing import ClassVar, Literal
 
 from pydantic import SecretStr
@@ -32,20 +40,36 @@ from app.snapshot.queries import (
 
 logger = logging.getLogger(__name__)
 
+# Minimum history span to qualify each variant. The thresholds are a bit
+# under 365 / 90 so a snapshot that just clipped 52 weeks (364 days) or
+# 12 weeks (84 days) still gets the appropriate card; the computed
+# window is still exactly a year / quarter back.
+ANNUAL_MIN_HISTORY_DAYS = 350
+QUARTERLY_MIN_HISTORY_DAYS = 80
+ANNUAL_WINDOW_DAYS = 365
+QUARTERLY_WINDOW_DAYS = 90
 
-def _period_bounds(today: date) -> tuple[Literal["annual", "quarterly"], date, date, str] | None:
-    """Annual on Jan 1; quarterly on first of Apr/Jul/Oct. Else None."""
-    if today.month == 1 and today.day == 1:
-        year = today.year - 1
-        return ("annual", date(year, 1, 1), date(year, 12, 31), str(year))
-    if today.day == 1 and today.month in (4, 7, 10):
-        month = today.month - 1
-        quarter = month // 3
-        year = today.year
-        start_month = month - 2
-        start = date(year, start_month, 1)
-        end = date(year, month, monthrange(year, month)[1])
-        return ("quarterly", start, end, f"{year}-Q{quarter}")
+
+def _period_bounds(
+    snapshot: YnabSnapshot,
+    today: date,
+) -> tuple[Literal["annual", "quarterly"], date, date, str] | None:
+    """Pick the widest retrospective window the snapshot can support.
+
+    Returns (kind, start, end, label) or None if the snapshot doesn't
+    have enough history. End is always `today` so the user sees their
+    most recent activity rather than an arbitrary calendar boundary.
+    """
+    if not snapshot.transactions:
+        return None
+    oldest = min(t.date for t in snapshot.transactions)
+    span_days = (today - oldest).days
+    if span_days >= ANNUAL_MIN_HISTORY_DAYS:
+        start = today - timedelta(days=ANNUAL_WINDOW_DAYS)
+        return ("annual", start, today, "last 12 months")
+    if span_days >= QUARTERLY_MIN_HISTORY_DAYS:
+        start = today - timedelta(days=QUARTERLY_WINDOW_DAYS)
+        return ("quarterly", start, today, "last 90 days")
     return None
 
 
@@ -73,7 +97,7 @@ class YearInMoneyGenerator(InsightGenerator):
         anthropic_model: str | None = None,
     ) -> Sequence[GeneratedInsight]:
         today = date.today()
-        bounds = _period_bounds(today)
+        bounds = _period_bounds(snapshot, today)
         if bounds is None:
             return []
         kind, start, end, label = bounds
@@ -209,7 +233,7 @@ class YearInMoneyGenerator(InsightGenerator):
             largest_swing = None
 
         title_period = "Your year in money" if kind == "annual" else "Your quarter in money"
-        title = f"{title_period}, {label}"
+        title = f"{title_period}: {label}"
         savings_rate = (
             (summary.income_cents - summary.spending_cents) / summary.income_cents
             if summary.income_cents > 0
@@ -265,7 +289,10 @@ class YearInMoneyGenerator(InsightGenerator):
         if enhanced.used_llm:
             data.narrative = enhanced.summary
 
-        dedup_key = f"year_in_money:{snapshot.budget_id}:{label}"
+        # Bucket the dedup key on (kind, end-month) so the card refreshes
+        # at-most-once per month rather than every regenerate, but does
+        # roll forward as months pass.
+        dedup_key = f"year_in_money:{snapshot.budget_id}:{kind}:{end.strftime('%Y-%m')}"
         return [
             GeneratedInsight(
                 dedup_key=dedup_key,

@@ -101,22 +101,18 @@ class InsightGenerator(ABC):
 
 `GeneratedInsight` is a small dataclass: `dedup_key`, `title`, `summary`,
 `structured_data`, `llm_enhanced`. Generators are side-effect-free; the
-orchestrator (`execute_generator`) owns the writes.
+orchestrator (`run_all_generators`) owns the writes.
 
-Orchestrator contract:
+Concurrent generation (v2.6f). `run_all_generators` fans every
+registered generator out to `asyncio.gather`, each wrapped in
+`asyncio.wait_for(timeout=30s)`. A timed-out or raising generator
+records a `RunRecord(status='error')` and does not block the others.
+Id allocation stays sequential in the merge phase so concurrent
+generators can't collide on the upsert map. Generators each own a
+disjoint `card_type`, so their `dedup_key` sets never overlap.
 
-1. Receive `(generator_cls, snapshot, anthropic_key, next_id,
-   next_run_id, existing)` where `existing` is a `(budget_id,
-   dedup_key) -> Insight` map for upsert.
-2. Call `generator.run(...)`. For each output, either insert with a
-   fresh id or update the matching existing row in place (refreshed
-   evidence, same id).
-3. Return `(RunOutcome, updated_insights, RunRecord)`.
-
-The `/api/insights/generate` router merges the returned insights back
-into `session.insights` and appends the run to `session.runs`.
-
-Exceptions are caught so one bad generator can't crash the endpoint.
+The `/api/insights/generate` router writes the merged insights back to
+`session.insights` and appends the new `RunRecord`s to `session.runs`.
 
 ## LLM degradation contract
 
@@ -172,21 +168,59 @@ Agent:
 
 ## Card types
 
-Six generators ship today, identical heuristics to v2.4:
+Six generators ship today. Three of them (Spending Anomaly, Category
+Drift, plus the cycle classifier they share) lean on
+`app/snapshot/cycle.py:classify_category_cycle`, which decides whether a
+category is `weekly | monthly | quarterly | annual | irregular` based
+on transaction-interval shape in the trailing 12 months (18 for the
+annual fallback). `irregular` is the fail-safe default; generators
+that don't have a comparison window they trust will skip the category
+rather than fire a low-confidence card.
 
-- **Subscription Audit** (weekly): cluster recurring same-payee +
-  same-amount charges over 90 days, classify by interval band.
-- **Spending Anomaly** (weekly): z-score the current week against the
-  12-week baseline per category, floor at $25 deviation.
+- **Subscription Audit** (weekly): cluster recurring same-payee charges
+  over a 365-day lookback. v2.6f normalizes payee names (strip case,
+  punctuation, suffix tokens `INC`/`LLC`/`COM`/`PAYPAL *`, trailing
+  transaction-id-shaped suffixes) before grouping, so "NETFLIX 4839A2NX"
+  and "Netflix" cluster together. Amounts qualify within +/-12% of the
+  cluster median (handles mid-window price changes). Minimum occurrences
+  is 3 by default, or 2 if the single interval lands within +/-3 days
+  of the canonical target for its cadence. Per-cadence interval bands:
+  weekly 5-9d, monthly 25-35d, quarterly 75-105d, yearly 335-395d.
+- **Spending Anomaly** (weekly): cycle-aware. Weekly-cycle categories
+  compare current week vs trailing 12 weeks; monthly-cycle compare
+  current month vs trailing 12 months. Quarterly/annual/irregular are
+  skipped (Category Drift owns the comparison logic where it applies).
+  Threshold: |z| >= 1.5 AND $50 absolute deviation. `cycle` discriminator
+  in the structured payload tells the frontend which copy to render.
 - **Cashflow Forecast** (daily): mean daily net over the last 90 days,
-  projected 30/60/90 against current open on-budget balance.
+  projected 30/60/90 against today's CASH balance only (checking +
+  savings + cash account types). Credit-card balances are surfaced as
+  a separate `credit_card_debt_cents` context line — netting them
+  against cash makes revolved credit look like a hole in the user's
+  position when it isn't. Cash account types: `checking`, `savings`,
+  `cash`. Credit types treated as debt: `creditCard`, `lineOfCredit`.
 - **Goal Trajectory** (daily): per-goal projection from YNAB's
   `goal_months_to_budget` + `goal_overall_left`.
-- **Category Drift** (monthly): trailing-quarter vs prior-three-quarters
-  per-category, +/-15% pct and $50/mo floor.
-- **Year in Money** (gates on Jan 1 / Apr 1 / Jul 1 / Oct 1): annual or
-  quarterly retrospective; LLM writes the narrative, deterministic
-  fallback paragraph.
+- **Category Drift** (monthly): comparison kind depends on the
+  category's cycle. Monthly/quarterly cycles: trailing 3 months vs prior
+  9 months (quarter-over-quarter). Annual cycles with at least 15 months
+  of data: trailing 3 months vs the same 3 months one year prior
+  (year-over-year), so tax prep / holiday spending / school supplies
+  don't fire false drift cards. Categories with <12 months of activity
+  or `irregular` cycle are skipped. Floors hold at +/-15% pct and
+  $50/mo. `comparison_kind` discriminator in the structured payload.
+- **Year in Money** (on-demand): no calendar gate. Annual variant when
+  the snapshot spans >= 365 days, quarterly when it spans >= 90 days,
+  no card under 90. Window always ends today; the dedup key buckets on
+  `(kind, end-month)` so the card refreshes once per month at most.
+  LLM writes the narrative; deterministic fallback paragraph.
+
+**Fail-closed on LLM steps.** Where deterministic detection has an
+LLM-aided fallback, the LLM-aided step never produces a low-confidence
+card — on timeout, parse error, or no-key, the generator either skips
+the category or falls back to the deterministic title/summary. The
+feed staying quiet on hard-to-classify data is the goal; bad cards are
+worse than missing cards.
 
 Heuristic detail and dedup keys live in
 [`../docs/ynab-insights.md`](../docs/ynab-insights.md).

@@ -9,15 +9,18 @@ export function SpendingAnomalyCard({
 }) {
   const isUp = data.z_score > 0;
   const pct = Math.abs(data.deviation_ratio) * 100;
+  const isMonthly = data.cycle === "monthly";
+  const currentLabel = isMonthly ? "This month" : "This week";
+  const baselineLabel = isMonthly ? "12-month average" : "12-week average";
   return (
     <div className="grid grid-cols-2 gap-4 text-sm">
       <div>
         <div className="text-xs uppercase tracking-wide text-muted-foreground">
-          This week
+          {currentLabel}
         </div>
         <div className="mt-1 flex items-baseline gap-2">
           <span className="text-2xl font-semibold tabular-nums">
-            {formatDollars(data.current_week_spend_cents)}
+            {formatDollars(data.current_period_spend_cents)}
           </span>
           {isUp ? (
             <TrendingUp className="h-4 w-4 text-destructive" />
@@ -28,7 +31,7 @@ export function SpendingAnomalyCard({
       </div>
       <div>
         <div className="text-xs uppercase tracking-wide text-muted-foreground">
-          12-week average
+          {baselineLabel}
         </div>
         <div className="mt-1 text-lg font-medium tabular-nums text-muted-foreground">
           {formatDollars(data.baseline_mean_cents)}

@@ -75,11 +75,13 @@ function buildExploreLink(insight: InsightResponse): { href: string; label: stri
         href: `/explore?view=transactions&payee_contains=${encodeURIComponent(data.payee_name)}`,
         label: `Show all ${data.payee_name} charges`,
       };
-    case "spending_anomaly":
+    case "spending_anomaly": {
+      const periodWord = data.cycle === "monthly" ? "month" : "week";
       return {
-        href: `/explore?view=transactions&category_id=${encodeURIComponent(data.category_id)}&date_from=${encodeURIComponent(data.week_start)}&date_to=${encodeURIComponent(data.week_end)}`,
-        label: `Open this week's ${data.category_name} transactions`,
+        href: `/explore?view=transactions&category_id=${encodeURIComponent(data.category_id)}&date_from=${encodeURIComponent(data.period_start)}&date_to=${encodeURIComponent(data.period_end)}`,
+        label: `Open this ${periodWord}'s ${data.category_name} transactions`,
       };
+    }
     case "category_drift":
       return {
         href: `/explore?view=transactions&category_id=${encodeURIComponent(data.category_id)}`,

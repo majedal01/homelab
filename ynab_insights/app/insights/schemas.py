@@ -60,9 +60,10 @@ class SpendingAnomalyData(BaseModel):
     card_type: Literal["spending_anomaly"] = "spending_anomaly"
     category_id: str
     category_name: str
-    week_start: date
-    week_end: date
-    current_week_spend_cents: int
+    cycle: Literal["weekly", "monthly"]
+    period_start: date
+    period_end: date
+    current_period_spend_cents: int
     baseline_mean_cents: int
     baseline_stdev_cents: int
     z_score: float
@@ -78,7 +79,11 @@ class CategoryRate(BaseModel):
 
 class CashflowForecastData(BaseModel):
     card_type: Literal["cashflow_forecast"] = "cashflow_forecast"
+    # Sum of cash-equivalent (checking/savings/cash) accounts only.
+    # Credit-card balances are NOT subtracted; they're surfaced as a
+    # separate "credit_card_debt_cents" secondary metric.
     starting_balance_cents: int
+    credit_card_debt_cents: int = 0
     daily_net_cents: int
     projected_30d_cents: int
     projected_60d_cents: int
@@ -96,8 +101,9 @@ class CategoryDriftData(BaseModel):
     card_type: Literal["category_drift"] = "category_drift"
     category_id: str
     category_name: str
+    comparison_kind: Literal["quarter_over_quarter", "year_over_year"]
     trailing_quarter_avg_cents: int  # positive net spend per month
-    prior_three_quarters_avg_cents: int
+    prior_three_quarters_avg_cents: int  # baseline avg; meaning depends on comparison_kind
     drift_pct: float  # signed; positive = drifted up
     drift_cents_per_month: int  # signed
     direction: Literal["up", "down"]

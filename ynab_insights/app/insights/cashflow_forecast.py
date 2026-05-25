@@ -1,7 +1,15 @@
-"""Cashflow Forecast generator.
+"""Cashflow Forecast generator (v2.6f).
 
-Projects net liquidity 30/60/90 days out from the mean daily net cashflow
-observed over the trailing 90 days. Scoped to on-budget accounts.
+Projects available cash 30/60/90 days out from the mean daily net
+cashflow observed over the trailing 90 days. Scoped to cash accounts
+(checking, savings, cash) only — credit-card balances are reported
+separately as `credit_card_debt_cents` rather than netted against cash.
+
+The v2.4 headline number subtracted credit-card balances, which made
+revolving debt look like a hole in the user's cash position. A user
+with $3k checking and $5k owed on a credit card is not -$2k poorer
+than today; they have $3k cash and a $5k debt paid down over time.
+The two facts are surfaced separately.
 """
 
 from __future__ import annotations
@@ -19,8 +27,9 @@ from app.snapshot.models import YnabSnapshot
 from app.snapshot.queries import (
     _internal_transfer_payee_ids,
     _is_income_category,
+    cash_balance_cents,
+    credit_card_debt_cents,
     spending_by_category,
-    starting_balance_cents,
     transactions_in_range,
 )
 
@@ -42,7 +51,8 @@ class CashflowForecastGenerator(InsightGenerator):
         today = date.today()
         start = today - timedelta(days=LOOKBACK_DAYS)
 
-        balance = starting_balance_cents(snapshot)
+        balance = cash_balance_cents(snapshot)
+        credit_debt = credit_card_debt_cents(snapshot)
         if balance == 0 and not any(a.on_budget and not a.closed for a in snapshot.accounts):
             return []
 
@@ -87,6 +97,7 @@ class CashflowForecastGenerator(InsightGenerator):
 
         data = CashflowForecastData(
             starting_balance_cents=balance,
+            credit_card_debt_cents=credit_debt,
             daily_net_cents=daily_net,
             projected_30d_cents=projected_30,
             projected_60d_cents=projected_60,
@@ -100,9 +111,9 @@ class CashflowForecastGenerator(InsightGenerator):
         projected_dollars = projected_90 / 100
         starting_dollars = balance / 100
         direction = "grow to" if projected_90 >= balance else "drop to"
-        fallback_title = f"Projected 90-day balance: ${projected_dollars:,.0f}"
+        fallback_title = f"Projected 90-day cash: ${projected_dollars:,.0f}"
         fallback_summary = (
-            f"At your last 90 days' pace, balances would {direction} "
+            f"At your last 90 days' pace, cash balances would {direction} "
             f"${projected_dollars:,.0f} from today's ${starting_dollars:,.0f}."
         )
 

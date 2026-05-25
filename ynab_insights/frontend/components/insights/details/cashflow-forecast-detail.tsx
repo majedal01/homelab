@@ -34,14 +34,24 @@ export function CashflowForecastDetail({
     setAdjustments((prev) => ({ ...prev, [key]: value }));
   }
 
+  const hasCreditDebt = data.credit_card_debt_cents > 0;
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-4">
-        <Stat label="Today" value={formatDollars(data.starting_balance_cents)} />
+        <Stat label="Cash today" value={formatDollars(data.starting_balance_cents)} />
         <Stat label="+30d" value={formatDollars(data.projected_30d_cents)} />
         <Stat label="+60d" value={formatDollars(data.projected_60d_cents)} />
         <Stat label="+90d" value={formatDollars(data.projected_90d_cents)} />
       </div>
+      {hasCreditDebt ? (
+        <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+          Credit card balances total{" "}
+          <span className="text-foreground tabular-nums">
+            {formatDollars(data.credit_card_debt_cents)}
+          </span>{" "}
+          — shown separately so the cash projection isn&apos;t masked by revolved debt.
+        </div>
+      ) : null}
       <div className="rounded-md border bg-card p-4">
         <div className="text-xs uppercase tracking-wide text-muted-foreground">
           What-if (after 90 days)
