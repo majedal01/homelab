@@ -22,6 +22,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
 from app.config import Settings
+from app.observability import metrics
 
 
 @dataclass
@@ -103,6 +104,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         events = self._buckets.get(key) or []
         events = [t for t in events if now - t < rule.window_seconds]
         if len(events) >= rule.limit_per_window:
+            metrics.rate_limit_hits_total.labels(scope=rule.scope).inc()
             retry_after = int(rule.window_seconds - (now - events[0]))
             return JSONResponse(
                 status_code=429,

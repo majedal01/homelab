@@ -20,6 +20,7 @@ from typing import Any, ClassVar
 
 from pydantic import SecretStr
 
+from app.observability import metrics
 from app.snapshot.models import YnabSnapshot
 
 logger = logging.getLogger(__name__)
@@ -175,6 +176,7 @@ async def execute_generator(
                 new_or_updated.append(insight)
                 insight_ids.append(insight.id)
                 created += 1
+                metrics.insights_generated_total.labels(card_type=generator_cls.card_type).inc()
             else:
                 prior.title = output.title
                 prior.summary = output.summary

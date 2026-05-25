@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # local dev doesn't spam.
     require_proxy_headers: bool = False
 
+    # Empty string disables the /metrics endpoint entirely (returns 404).
+    # When set, callers must send X-Admin-Token matching this value to
+    # read Prometheus counters. Same constant-time comparison either way.
+    metrics_admin_token: str = ""
+
     # Agent loop guardrails (v2.5).
     agent_max_tool_calls: int = 20
     agent_max_duration_seconds: int = 60
