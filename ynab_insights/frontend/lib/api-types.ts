@@ -26,6 +26,7 @@ export interface SessionPublic {
   budget_id: string | null;
   budget_name: string | null;
   anthropic_model: string | null;
+  is_demo: boolean;
   created_at: string;
   last_active_at: string;
   last_synced_at: string | null;
