@@ -15,7 +15,10 @@ import { dismiss as dismissLocal, restore as restoreLocal } from "@/lib/dismissa
 import { SubscriptionAuditCard } from "@/components/insights/cards/subscription-audit-card";
 import { SpendingAnomalyCard } from "@/components/insights/cards/spending-anomaly-card";
 import { CashflowForecastCard } from "@/components/insights/cards/cashflow-forecast-card";
+import { CategoryProjectionCard } from "@/components/insights/cards/category-projection-card";
+import { DebtPayoffCard } from "@/components/insights/cards/debt-payoff-card";
 import { GoalTrajectoryCard } from "@/components/insights/cards/goal-trajectory-card";
+import { GoalSetupPromptCard } from "@/components/insights/cards/goal-setup-prompt-card";
 import { CategoryDriftCard } from "@/components/insights/cards/category-drift-card";
 import { YearInMoneyCard } from "@/components/insights/cards/year-in-money-card";
 
@@ -23,7 +26,10 @@ const CARD_TYPE_LABEL: Record<InsightResponse["card_type"], string> = {
   subscription_audit: "Subscription",
   spending_anomaly: "Anomaly",
   cashflow_forecast: "Forecast",
+  category_projection: "Projection",
+  debt_payoff: "Debt",
   goal_trajectory: "Goal",
+  goal_setup_prompt: "Goal",
   category_drift: "Drift",
   year_in_money: "Year in money",
 };
@@ -37,8 +43,14 @@ function CardBody({ insight }: { insight: InsightResponse }) {
       return <SpendingAnomalyCard data={data} />;
     case "cashflow_forecast":
       return <CashflowForecastCard data={data} />;
+    case "category_projection":
+      return <CategoryProjectionCard data={data} />;
+    case "debt_payoff":
+      return <DebtPayoffCard data={data} />;
     case "goal_trajectory":
       return <GoalTrajectoryCard data={data} />;
+    case "goal_setup_prompt":
+      return <GoalSetupPromptCard data={data} />;
     case "category_drift":
       return <CategoryDriftCard data={data} />;
     case "year_in_money":
