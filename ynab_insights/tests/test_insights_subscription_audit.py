@@ -63,6 +63,21 @@ def test_normalize_payee_collapses_common_variants() -> None:
     assert _normalize_payee("Spotify") != base
 
 
+def test_normalize_payee_strips_city_state_tails() -> None:
+    """Card-network payees often arrive with a trailing city and state."""
+    base = _normalize_payee("Starbucks")
+    assert _normalize_payee("STARBUCKS SEATTLE WA") == base
+    assert _normalize_payee("Starbucks Seattle WA") == base
+
+
+def test_normalize_payee_strips_pos_prefixes() -> None:
+    """Square / Toast / Stripe / Paddle present with merchant-processor
+    prefixes; the underlying merchant must still cluster."""
+    coffee = _normalize_payee("Bluestone Coffee")
+    assert _normalize_payee("SQ *BLUESTONE COFFEE") == coffee
+    assert _normalize_payee("TST*Bluestone Coffee") == coffee
+
+
 async def test_netflix_with_midwindow_price_change_clusters() -> None:
     """Five monthly Netflix charges, price goes from $15.99 to $17.99
     halfway through. v2.4 split this into two never-qualifying clusters;

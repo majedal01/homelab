@@ -1,10 +1,8 @@
-# YNAB Insights design notes (v2.5)
+# YNAB Insights design notes
 
 Architectural choices that span backend, frontend, and infra. Per-phase
 scope lives in merged PR descriptions; this file is the load-bearing
-reference. The deep planning rationale (session model, in-memory data
-layer, dismissal pattern, rate limits, agent guardrails, validation
-flow) lives in [`../docs/ynab-insights.md`](../docs/ynab-insights.md).
+reference.
 
 ## What changed in v2.5
 
@@ -252,9 +250,6 @@ Helper lives in `app/insights/diagnostics.py`. Logger name
 without touching the main app logger. Field values must be safe to log
 (no payee names, no raw amounts) — these lines land in stage container
 logs by design.
-
-Heuristic detail and dedup keys live in
-[`../docs/ynab-insights.md`](../docs/ynab-insights.md).
 
 ## Rate limits + guardrails
 

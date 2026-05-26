@@ -47,7 +47,7 @@ LOOKBACK_DAYS = 365
 # sometimes have only two charges visible in the lookback (mid-year signup,
 # annual subscription with one charge "this year" and one "last year").
 MIN_OCCURRENCES_WITH_TIGHT_INTERVALS = 2
-AMOUNT_TOLERANCE = 0.12  # +/-12% from cluster median
+AMOUNT_TOLERANCE = 0.15  # +/-15% from cluster median
 
 # Per-cadence interval bands: (cadence, min, target, max). The bands are
 # wider than v2.4 to absorb posting-date jitter — a "monthly" charge that
@@ -59,14 +59,23 @@ _CADENCE_BANDS: tuple[tuple[Cadence, int, int, int], ...] = (
     ("yearly", 335, 365, 395),
 )
 
-# Payee normalization. Trailing transaction-id-shaped tokens (8+ alphanumeric
-# uppercase characters) and common corporate suffixes get stripped before
-# cluster grouping.
+# Payee normalization. Trailing transaction-id-shaped tokens and common
+# corporate / merchant-processor suffixes get stripped before cluster
+# grouping. The point-of-sale prefixes (SQ *, TST*, PADDLE.NET*) are
+# specifically how Square / Toast / Paddle present in YNAB.
 _SUFFIX_TOKENS = re.compile(
-    r"\b(inc|llc|ltd|corp|co|com|company|the|paypal|sq|sqr|tst)\b",
+    r"\b("
+    r"inc|llc|ltd|corp|corporation|co|com|company|the|"
+    r"paypal|paddle|sq|sqr|tst|stripe|venmo|zelle"
+    r")\b",
     re.IGNORECASE,
 )
 _TRAILING_ID = re.compile(r"\s+[A-Z0-9]{8,}\b")
+# Catch trailing CITY-STATE patterns YNAB often appends to card-network
+# payees ("Starbucks Seattle WA", "TARGET T-1234 BOSTON MA"). Two-letter
+# uppercase state code anchored to end-of-string with preceding mixed-
+# case city words.
+_TRAILING_CITY_STATE = re.compile(r"\s+[A-Za-z][A-Za-z'.\- ]*\s+[A-Z]{2}\s*$")
 _PUNCTUATION = re.compile(r"[*#./\-_,()&]")
 _WHITESPACE = re.compile(r"\s+")
 
@@ -79,6 +88,7 @@ def _normalize_payee(name: str) -> str:
     fine as long as semantically-same payees end up at the same key.
     """
     cleaned = name
+    cleaned = _TRAILING_CITY_STATE.sub("", cleaned)
     cleaned = _TRAILING_ID.sub("", cleaned)
     cleaned = _PUNCTUATION.sub(" ", cleaned)
     cleaned = _SUFFIX_TOKENS.sub("", cleaned)

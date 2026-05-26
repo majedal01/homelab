@@ -61,7 +61,6 @@
 
 /* -------------------------------------------------------------------------
  * Aurora ambient background.
- * Palette + opacity rationale in docs/ynab-insights.md ("Aurora background").
  * All washes are GPU-composited transforms; no paint cost after first frame.
  * `prefers-reduced-motion` disables the drift entirely.
  * ------------------------------------------------------------------------- */
