@@ -266,6 +266,13 @@ def _qualify_group(entries: list[Entry]) -> tuple[list[_Cluster], list[str]]:
                 reasons.append("subcluster_below_min")
             continue
         inside, outside = _partition_by_amount(sub)
+        if not inside:
+            # Median fell between two amount peaks with no entry within
+            # tolerance — e.g., 5 at $9.99 and 5 at $14.99, median $12.49,
+            # nothing within +/-12% of $12.49. Without this guard we'd
+            # recurse forever on `outside == sub`.
+            reasons.append("amount_partition_stalled")
+            continue
         if outside:
             pending.append(outside)
         cluster, reason = _qualify_amount_coherent(inside)
@@ -277,15 +284,22 @@ def _qualify_group(entries: list[Entry]) -> tuple[list[_Cluster], list[str]]:
 
 
 def _partition_by_amount(entries: list[Entry]) -> tuple[list[Entry], list[Entry]]:
-    """Split into (within +/-AMOUNT_TOLERANCE of median, everything else)."""
+    """Split into (within +/-AMOUNT_TOLERANCE of mode, everything else).
+
+    Anchor on the mode rather than the median so an even split — 5
+    charges at $9.99 vs 5 at $14.99 — doesn't end up with a median that
+    sits between both peaks (which would put nothing inside the band and
+    stall recursion). `statistics.mode` returns the first-encountered
+    most-common value on ties, so single-amount clusters are stable too.
+    """
     amounts = [e[2].amount_cents for e in entries]
-    median = statistics.median(amounts)
-    if median == 0:
+    anchor = statistics.mode(amounts)
+    if anchor == 0:
         return entries, []
     inside: list[Entry] = []
     outside: list[Entry] = []
     for entry in entries:
-        if abs(entry[2].amount_cents - median) / abs(median) <= AMOUNT_TOLERANCE:
+        if abs(entry[2].amount_cents - anchor) / abs(anchor) <= AMOUNT_TOLERANCE:
             inside.append(entry)
         else:
             outside.append(entry)
