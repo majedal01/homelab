@@ -132,7 +132,9 @@ Discriminated union over the typed per-card payloads:
 ```python
 InsightStructuredData = Annotated[
     SubscriptionAuditData | SpendingAnomalyData | CashflowForecastData
-        | GoalTrajectoryData | CategoryDriftData | YearInMoneyData,
+        | CategoryProjectionData | DebtPayoffData
+        | GoalTrajectoryData | GoalSetupPromptData
+        | CategoryDriftData | YearInMoneyData,
     Field(discriminator="card_type"),
 ]
 ```
@@ -168,30 +170,30 @@ Agent:
 
 ## Card types
 
-Six generators ship today. Three of them (Spending Anomaly, Category
-Drift, plus the cycle classifier they share) lean on
-`app/snapshot/cycle.py:classify_category_cycle`, which decides whether a
-category is `weekly | monthly | quarterly | annual | irregular` based
-on transaction-interval shape in the trailing 12 months (18 for the
-annual fallback). `irregular` is the fail-safe default; generators
-that don't have a comparison window they trust will skip the category
-rather than fire a low-confidence card.
+Eight generators ship today. Three of them (Spending Anomaly, Category
+Drift, Category Projection) lean on `app/snapshot/cycle.py` or its
+trailing-window patterns; the rest stand on their own. Generators that
+don't have a comparison window they trust skip the category rather
+than fire a low-confidence card.
 
 - **Subscription Audit** (weekly): cluster recurring same-payee charges
   over a 365-day lookback. v2.6f normalizes payee names (strip case,
   punctuation, suffix tokens `INC`/`LLC`/`COM`/`PAYPAL *`, trailing
   transaction-id-shaped suffixes) before grouping, so "NETFLIX 4839A2NX"
-  and "Netflix" cluster together. Amounts qualify within +/-12% of the
-  cluster median (handles mid-window price changes). Minimum occurrences
-  is 3 by default, or 2 if the single interval lands within +/-3 days
-  of the canonical target for its cadence. Per-cadence interval bands:
-  weekly 5-9d, monthly 25-35d, quarterly 75-105d, yearly 335-395d.
+  and "Netflix" cluster together. v2.6g sub-clusters within each
+  normalized-payee group by amount: anchor on the mode, peel off
+  entries within +/-12%, recurse on the rest. So a $9.99 -> $11.99
+  price change splits into two cards instead of one rejected cluster.
+  Minimum 2 occurrences. Per-cadence interval bands are the only
+  spacing check: weekly 5-9d, monthly 25-35d, quarterly 75-105d,
+  yearly 335-395d.
 - **Spending Anomaly** (weekly): cycle-aware. Weekly-cycle categories
   compare current week vs trailing 12 weeks; monthly-cycle compare
   current month vs trailing 12 months. Quarterly/annual/irregular are
   skipped (Category Drift owns the comparison logic where it applies).
-  Threshold: |z| >= 1.5 AND $50 absolute deviation. `cycle` discriminator
-  in the structured payload tells the frontend which copy to render.
+  Threshold (v2.6g): |z| >= 1.2 AND $30 absolute deviation. `cycle`
+  discriminator in the structured payload tells the frontend which
+  copy to render.
 - **Cashflow Forecast** (daily): mean daily net over the last 90 days,
   projected 30/60/90 against today's CASH balance only (checking +
   savings + cash account types). Credit-card balances are surfaced as
@@ -199,8 +201,23 @@ rather than fire a low-confidence card.
   against cash makes revolved credit look like a hole in the user's
   position when it isn't. Cash account types: `checking`, `savings`,
   `cash`. Credit types treated as debt: `creditCard`, `lineOfCredit`.
+- **Category Projection** (weekly, v2.6g): per-category month-end
+  projection for the top 5 trailing-90d spenders. `pace = mtd /
+  days_into_month`; `projected = pace * days_in_month`; baseline is
+  the trailing 12-month monthly average. Fires when `|projected -
+  baseline|` exceeds both 15% of baseline AND $50/mo. Skips when fewer
+  than 5 days into the month (pace is too noisy).
+- **Debt Payoff** (monthly, v2.6g): for each open credit-card / LoC
+  account with negative balance, project payoff date at the current
+  monthly paydown pace. 3-month lookback, falling back to 6 months
+  when the 3mo signal is under $20/mo. Skips growing balances (no
+  payoff story) and projections > 120 months (10-year+ paydown reads
+  as discouraging rather than informative).
 - **Goal Trajectory** (daily): per-goal projection from YNAB's
-  `goal_months_to_budget` + `goal_overall_left`.
+  `goal_months_to_budget` + `goal_overall_left`. If the user has no
+  goals configured in YNAB, emits ONE `goal_setup_prompt` card instead
+  (top 5 spending categories as candidate goal targets) so the
+  section never reads as silently empty.
 - **Category Drift** (monthly): comparison kind depends on the
   category's cycle. Monthly/quarterly cycles: trailing 3 months vs prior
   9 months (quarter-over-quarter). Annual cycles with at least 15 months
@@ -221,6 +238,20 @@ card — on timeout, parse error, or no-key, the generator either skips
 the category or falls back to the deterministic title/summary. The
 feed staying quiet on hard-to-classify data is the goal; bad cards are
 worse than missing cards.
+
+## Diagnostic logging (v2.6g)
+
+`LOG_GENERATOR_INTERNALS=true` in the process env turns on per-step
+INFO logging in every generator. Each generator emits one `start` line
+with input counts, one `rejected`/`skipped` line per filter step with
+a reason + count, and one `finished` line with `insights_emitted`. The
+default is silent (cached env miss = no-op) so prod logs stay clean.
+
+Helper lives in `app/insights/diagnostics.py`. Logger name
+`app.insights.diagnostics` makes it easy to filter prod log streams
+without touching the main app logger. Field values must be safe to log
+(no payee names, no raw amounts) — these lines land in stage container
+logs by design.
 
 Heuristic detail and dedup keys live in
 [`../docs/ynab-insights.md`](../docs/ynab-insights.md).
