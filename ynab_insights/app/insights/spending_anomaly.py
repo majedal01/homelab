@@ -40,8 +40,11 @@ from app.snapshot.queries import (
 
 BASELINE_WEEKS = 12
 BASELINE_MONTHS = 12
-MIN_ABSOLUTE_DEVIATION_CENTS = 5000  # $50
-Z_SCORE_THRESHOLD = 1.5
+# v2.6g tuned the floors. v2.6f's z>=1.5 / $50 was too strict on real
+# budgets — anomalies that the user clearly recognized as unusual were
+# falling short. z=1.2 / $30 moves the needle without flooding the feed.
+MIN_ABSOLUTE_DEVIATION_CENTS = 3000  # $30
+Z_SCORE_THRESHOLD = 1.2
 TOP_TRANSACTIONS = 3
 
 
