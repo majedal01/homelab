@@ -13,6 +13,7 @@ from typing import ClassVar
 from pydantic import SecretStr
 
 from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
+from app.insights.diagnostics import diag
 from app.insights.llm import enhance_copy
 from app.insights.schemas import GoalTrajectoryData
 from app.snapshot.models import YnabSnapshot
@@ -39,14 +40,23 @@ class GoalTrajectoryGenerator(InsightGenerator):
         categories = [
             c for c in snapshot.categories if c.goal_target_cents is not None and not c.hidden
         ]
+        diag(
+            "goal_trajectory",
+            "start",
+            total_categories=len(snapshot.categories),
+            categories_with_goals=len(categories),
+        )
 
         outputs: list[GeneratedInsight] = []
+        skips: dict[str, int] = {}
         for cat in categories:
             target = cat.goal_target_cents or 0
             if target <= 0:
+                skips["zero_target"] = skips.get("zero_target", 0) + 1
                 continue
             percent = cat.goal_percentage_complete or 0
             if percent >= 100:
+                skips["already_complete"] = skips.get("already_complete", 0) + 1
                 continue
 
             remaining = cat.goal_overall_left_cents
@@ -117,4 +127,7 @@ class GoalTrajectoryGenerator(InsightGenerator):
                 )
             )
 
+        for reason, count in skips.items():
+            diag("goal_trajectory", "skipped", reason=reason, count=count)
+        diag("goal_trajectory", "finished", insights_emitted=len(outputs))
         return outputs

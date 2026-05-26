@@ -21,6 +21,7 @@ from typing import ClassVar
 from pydantic import SecretStr
 
 from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
+from app.insights.diagnostics import diag
 from app.insights.llm import enhance_copy
 from app.insights.schemas import CashflowForecastData, CategoryRate
 from app.snapshot.models import YnabSnapshot
@@ -53,7 +54,14 @@ class CashflowForecastGenerator(InsightGenerator):
 
         balance = cash_balance_cents(snapshot)
         credit_debt = credit_card_debt_cents(snapshot)
+        diag(
+            "cashflow_forecast",
+            "balances",
+            cash_cents=balance,
+            credit_debt_cents=credit_debt,
+        )
         if balance == 0 and not any(a.on_budget and not a.closed for a in snapshot.accounts):
+            diag("cashflow_forecast", "skipped", reason="no_active_accounts")
             return []
 
         on_budget = {a.id for a in snapshot.accounts if a.on_budget}
@@ -126,6 +134,12 @@ class CashflowForecastGenerator(InsightGenerator):
             payload=data.model_dump(mode="json"),
         )
 
+        diag(
+            "cashflow_forecast",
+            "projection",
+            daily_net_cents=daily_net,
+            projected_90d_cents=projected_90,
+        )
         iso = today.isocalendar()
         dedup_key = f"forecast:{snapshot.budget_id}:{iso.year}-W{iso.week:02d}"
         return [
