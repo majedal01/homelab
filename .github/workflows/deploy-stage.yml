@@ -71,11 +71,13 @@ jobs:
             "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}:/home/deploy/stacks/stage/docker-compose.yml"
 
       - name: Sync env vars into .env on VM
-        # Persist the v2.6e env vars so they survive container restarts
-        # outside this deploy. REQUIRE_PROXY_HEADERS is idempotent (set
-        # if missing); METRICS_ADMIN_TOKEN is rotated via GitHub Secrets,
-        # so we always replace it. /metrics returns 404 gracefully if
-        # the secret is unset.
+        # Persist platform env vars across deploys.
+        # - REQUIRE_PROXY_HEADERS (v2.6e): idempotent, set if missing.
+        # - METRICS_ADMIN_TOKEN (v2.6e): rotated via GitHub Secrets, always
+        #   replaced; /metrics returns 404 gracefully when unset.
+        # - LOG_GENERATOR_INTERNALS (v2.6g): idempotent, set if missing.
+        #   Stage runs with diagnostics ON by default so "why did this card
+        #   miss" can be diagnosed from logs without a debugger.
         env:
           ADMIN_TOKEN: ${{ secrets.METRICS_ADMIN_TOKEN }}
         run: |
@@ -83,6 +85,7 @@ jobs:
             "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
             "cd /home/deploy/stacks/stage && \
              grep -q '^REQUIRE_PROXY_HEADERS=' .env || echo 'REQUIRE_PROXY_HEADERS=true' >> .env && \
+             grep -q '^LOG_GENERATOR_INTERNALS=' .env || echo 'LOG_GENERATOR_INTERNALS=true' >> .env && \
              sed -i '/^METRICS_ADMIN_TOKEN=/d' .env && \
              printf 'METRICS_ADMIN_TOKEN=%s\n' '${ADMIN_TOKEN}' >> .env"
 
