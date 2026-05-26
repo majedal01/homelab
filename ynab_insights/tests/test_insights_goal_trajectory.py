@@ -104,3 +104,48 @@ async def test_user_with_goals_emits_trajectory_cards() -> None:
     insights = await GoalTrajectoryGenerator().run(snapshot, anthropic_key=None)
     assert len(insights) == 1
     assert insights[0].structured_data["card_type"] == "goal_trajectory"
+
+
+async def test_all_goals_complete_falls_back_to_empty_state() -> None:
+    """User has goals in YNAB but every one is 100% complete. v2.6g
+    initially returned zero cards here — now falls back to the empty-
+    state prompt so the Goals section is never silently empty."""
+    today = date.today()
+    cats = [
+        Category(
+            id="cat-done",
+            name="Vacation",
+            goal_target_cents=200000,
+            goal_percentage_complete=100,
+            goal_overall_left_cents=0,
+            goal_months_to_budget=0,
+            goal_type="TBD",
+        ),
+        Category(id="cat-groc", name="Groceries"),
+    ]
+    txns = [_txn(today - timedelta(days=10), "cat-groc", -40000)]
+    snapshot = _snapshot(cats, txns)
+    insights = await GoalTrajectoryGenerator().run(snapshot, anthropic_key=None)
+    assert len(insights) == 1
+    assert insights[0].structured_data["card_type"] == "goal_setup_prompt"
+
+
+async def test_zero_target_goals_fall_back_to_empty_state() -> None:
+    """Same idea: every goal-tagged category has target 0, so loop
+    skips them all -> empty-state prompt."""
+    today = date.today()
+    cats = [
+        Category(
+            id="cat-empty",
+            name="Empty goal",
+            goal_target_cents=0,
+            goal_percentage_complete=0,
+            goal_type="TBD",
+        ),
+        Category(id="cat-groc", name="Groceries"),
+    ]
+    txns = [_txn(today - timedelta(days=5), "cat-groc", -40000)]
+    snapshot = _snapshot(cats, txns)
+    insights = await GoalTrajectoryGenerator().run(snapshot, anthropic_key=None)
+    assert len(insights) == 1
+    assert insights[0].structured_data["card_type"] == "goal_setup_prompt"

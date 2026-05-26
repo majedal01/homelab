@@ -3,11 +3,13 @@
 For each Category with a non-zero goal target that is not yet 100% complete,
 project completion using YNAB's goal fields surfaced in the snapshot.
 
-If the user has NO goals configured in YNAB at all, the generator emits
-ONE empty-state card with card_type=goal_setup_prompt instead of zero
-cards. That card lists the user's top spending categories as candidate
-goal targets so the section never reads as "broken empty" — it always
-either shows real trajectories or a path to set one up.
+When the loop ends up emitting zero trajectory cards — either because
+the user hasn't configured any goals OR because every goal got filtered
+out (all 100% complete, zero target, hidden, etc.) — the generator
+falls back to ONE empty-state card with card_type=goal_setup_prompt.
+That card lists the user's top spending categories as candidate goal
+targets, so the Goals section never reads as "broken empty"; it always
+shows either real trajectories or a path to set one up.
 """
 
 from __future__ import annotations
@@ -145,6 +147,19 @@ class GoalTrajectoryGenerator(InsightGenerator):
 
         for reason, count in skips.items():
             diag("goal_trajectory", "skipped", reason=reason, count=count)
+
+        if not outputs:
+            # Categories had goal targets but every single one filtered out
+            # (all complete, zero target, hidden). Fall back to the empty-
+            # state prompt so the Goals section is never silently empty.
+            prompt = _build_empty_state_prompt(snapshot, today)
+            diag(
+                "goal_trajectory",
+                "empty_state",
+                reason="all_goals_filtered",
+            )
+            return [prompt] if prompt is not None else []
+
         diag("goal_trajectory", "finished", insights_emitted=len(outputs))
         return outputs
 
