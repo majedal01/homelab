@@ -4,8 +4,6 @@
  * Single source of truth for durations, easings, and stagger values. If a
  * card feels too snappy or too sluggish, change it here once and the
  * adjustment propagates through every component that imports `MOTION`.
- *
- * Token rationale lives in `docs/ynab-insights.md` ("Motion tokens").
  */
 
 import type { Transition } from "motion/react";
