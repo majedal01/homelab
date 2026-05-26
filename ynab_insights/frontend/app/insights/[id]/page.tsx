@@ -10,7 +10,10 @@ import type { InsightResponse } from "@/lib/api-types";
 import { SubscriptionAuditDetail } from "@/components/insights/details/subscription-audit-detail";
 import { SpendingAnomalyDetail } from "@/components/insights/details/spending-anomaly-detail";
 import { CashflowForecastDetail } from "@/components/insights/details/cashflow-forecast-detail";
+import { CategoryProjectionDetail } from "@/components/insights/details/category-projection-detail";
+import { DebtPayoffDetail } from "@/components/insights/details/debt-payoff-detail";
 import { GoalTrajectoryDetail } from "@/components/insights/details/goal-trajectory-detail";
+import { GoalSetupPromptDetail } from "@/components/insights/details/goal-setup-prompt-detail";
 import { CategoryDriftDetail } from "@/components/insights/details/category-drift-detail";
 import { YearInMoneyDetail } from "@/components/insights/details/year-in-money-detail";
 import { DismissButton } from "@/components/insights/dismiss-button";
@@ -21,7 +24,10 @@ const CARD_TYPE_LABEL: Record<InsightResponse["card_type"], string> = {
   subscription_audit: "Subscription audit",
   spending_anomaly: "Spending anomaly",
   cashflow_forecast: "Cashflow forecast",
+  category_projection: "Category projection",
+  debt_payoff: "Debt payoff",
   goal_trajectory: "Goal trajectory",
+  goal_setup_prompt: "Set goals to track",
   category_drift: "Category drift",
   year_in_money: "Year in money",
 };
@@ -35,8 +41,14 @@ function renderBody(insight: InsightResponse): React.ReactElement {
       return <SpendingAnomalyDetail data={data} />;
     case "cashflow_forecast":
       return <CashflowForecastDetail data={data} />;
+    case "category_projection":
+      return <CategoryProjectionDetail data={data} />;
+    case "debt_payoff":
+      return <DebtPayoffDetail data={data} />;
     case "goal_trajectory":
       return <GoalTrajectoryDetail data={data} />;
+    case "goal_setup_prompt":
+      return <GoalSetupPromptDetail data={data} />;
     case "category_drift":
       return <CategoryDriftDetail data={data} />;
     case "year_in_money":
@@ -55,6 +67,12 @@ function buildAskPrompt(insight: InsightResponse): string {
       return "Based on my last 90 days, where could I trim spending to improve my 90-day balance?";
     case "goal_trajectory":
       return `Am I on track to hit my ${data.category_name} goal? What would help me move faster?`;
+    case "category_projection":
+      return `Why is ${data.category_name} pacing ${data.direction} usual this month? Where can I trim?`;
+    case "debt_payoff":
+      return `Walk me through paydown strategies for ${data.account_name}. What's realistic if I add $100/mo?`;
+    case "goal_setup_prompt":
+      return "What categories make sense to set goals on first? Suggest targets I could enter in YNAB.";
     case "category_drift":
       return `What changed about my ${data.category_name} spending over the last year?`;
     case "year_in_money":
@@ -82,6 +100,11 @@ function buildExploreLink(insight: InsightResponse): { href: string; label: stri
         label: `Open this ${periodWord}'s ${data.category_name} transactions`,
       };
     }
+    case "category_projection":
+      return {
+        href: `/explore?view=transactions&category_id=${encodeURIComponent(data.category_id)}&date_from=${encodeURIComponent(data.month_start)}`,
+        label: `Open this month's ${data.category_name} transactions`,
+      };
     case "category_drift":
       return {
         href: `/explore?view=transactions&category_id=${encodeURIComponent(data.category_id)}`,
@@ -91,6 +114,16 @@ function buildExploreLink(insight: InsightResponse): { href: string; label: stri
       return {
         href: `/explore?view=categories`,
         label: "Open in Categories",
+      };
+    case "goal_setup_prompt":
+      return {
+        href: `/explore?view=categories`,
+        label: "Open in Categories",
+      };
+    case "debt_payoff":
+      return {
+        href: `/explore?view=accounts`,
+        label: `Open ${data.account_name}`,
       };
     case "cashflow_forecast":
       return null;

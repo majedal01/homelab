@@ -18,7 +18,10 @@ CardType = Literal[
     "subscription_audit",
     "spending_anomaly",
     "cashflow_forecast",
+    "category_projection",
+    "debt_payoff",
     "goal_trajectory",
+    "goal_setup_prompt",
     "category_drift",
     "year_in_money",
 ]
@@ -95,6 +98,56 @@ class CashflowForecastData(BaseModel):
     lookback_income_cents: int = 0
     lookback_spending_cents: int = 0
     top_spending_categories: list[CategoryRate]
+
+
+class CategoryProjectionTopTransaction(BaseModel):
+    id: str
+    date: date
+    amount_cents: int
+    payee_name: str | None = None
+
+
+class CategoryProjectionData(BaseModel):
+    card_type: Literal["category_projection"] = "category_projection"
+    category_id: str
+    category_name: str
+    month_start: date
+    days_into_month: int
+    days_in_month: int
+    month_to_date_cents: int  # positive = spend
+    projected_month_end_cents: int  # positive
+    baseline_monthly_avg_cents: int  # positive, trailing 12mo
+    delta_cents: int  # signed; positive = projected > baseline
+    delta_pct: float  # signed; ratio of delta / baseline
+    direction: Literal["over", "under"]
+    top_transactions: list[CategoryProjectionTopTransaction]
+
+
+class DebtPayoffData(BaseModel):
+    card_type: Literal["debt_payoff"] = "debt_payoff"
+    account_id: str
+    account_name: str
+    account_type: str  # "creditCard" | "lineOfCredit"
+    current_debt_cents: int  # positive
+    avg_monthly_paydown_cents: int  # positive
+    lookback_months: int
+    projected_months_to_payoff: int
+    projected_payoff_date: date
+
+
+class GoalSetupPromptCategory(BaseModel):
+    category_id: str
+    category_name: str
+    monthly_avg_spend_cents: int  # positive
+
+
+class GoalSetupPromptData(BaseModel):
+    """Empty-state card emitted by GoalTrajectoryGenerator when the user
+    has no goals configured in YNAB. Lists their top spending categories
+    as candidate goal targets."""
+
+    card_type: Literal["goal_setup_prompt"] = "goal_setup_prompt"
+    top_categories: list[GoalSetupPromptCategory]
 
 
 class CategoryDriftData(BaseModel):
@@ -175,7 +228,10 @@ InsightStructuredData = Annotated[
     SubscriptionAuditData
     | SpendingAnomalyData
     | CashflowForecastData
+    | CategoryProjectionData
+    | DebtPayoffData
     | GoalTrajectoryData
+    | GoalSetupPromptData
     | CategoryDriftData
     | YearInMoneyData,
     Field(discriminator="card_type"),

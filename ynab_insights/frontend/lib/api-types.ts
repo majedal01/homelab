@@ -123,7 +123,10 @@ export type CardType =
   | "subscription_audit"
   | "spending_anomaly"
   | "cashflow_forecast"
+  | "category_projection"
+  | "debt_payoff"
   | "goal_trajectory"
+  | "goal_setup_prompt"
   | "category_drift"
   | "year_in_money";
 
@@ -190,6 +193,52 @@ export interface CashflowForecastData {
   lookback_income_cents: number;
   lookback_spending_cents: number;
   top_spending_categories: CategoryRate[];
+}
+
+export interface CategoryProjectionTopTransaction {
+  id: string;
+  date: string;
+  amount_cents: number;
+  payee_name: string | null;
+}
+
+export interface CategoryProjectionData {
+  card_type: "category_projection";
+  category_id: string;
+  category_name: string;
+  month_start: string;
+  days_into_month: number;
+  days_in_month: number;
+  month_to_date_cents: number;
+  projected_month_end_cents: number;
+  baseline_monthly_avg_cents: number;
+  delta_cents: number;
+  delta_pct: number;
+  direction: "over" | "under";
+  top_transactions: CategoryProjectionTopTransaction[];
+}
+
+export interface DebtPayoffData {
+  card_type: "debt_payoff";
+  account_id: string;
+  account_name: string;
+  account_type: string;
+  current_debt_cents: number;
+  avg_monthly_paydown_cents: number;
+  lookback_months: number;
+  projected_months_to_payoff: number;
+  projected_payoff_date: string;
+}
+
+export interface GoalSetupPromptCategory {
+  category_id: string;
+  category_name: string;
+  monthly_avg_spend_cents: number;
+}
+
+export interface GoalSetupPromptData {
+  card_type: "goal_setup_prompt";
+  top_categories: GoalSetupPromptCategory[];
 }
 
 export interface GoalTrajectoryData {
@@ -264,7 +313,10 @@ export type InsightStructuredData =
   | SubscriptionAuditData
   | SpendingAnomalyData
   | CashflowForecastData
+  | CategoryProjectionData
+  | DebtPayoffData
   | GoalTrajectoryData
+  | GoalSetupPromptData
   | CategoryDriftData
   | YearInMoneyData;
 

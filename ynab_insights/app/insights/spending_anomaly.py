@@ -27,6 +27,7 @@ from typing import ClassVar
 from pydantic import SecretStr
 
 from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
+from app.insights.diagnostics import diag
 from app.insights.llm import enhance_copy
 from app.insights.schemas import AnomalyTopTransaction, SpendingAnomalyData
 from app.snapshot.cycle import Cycle, classify_category_cycle
@@ -39,8 +40,11 @@ from app.snapshot.queries import (
 
 BASELINE_WEEKS = 12
 BASELINE_MONTHS = 12
-MIN_ABSOLUTE_DEVIATION_CENTS = 5000  # $50
-Z_SCORE_THRESHOLD = 1.5
+# v2.6g tuned the floors. v2.6f's z>=1.5 / $50 was too strict on real
+# budgets — anomalies that the user clearly recognized as unusual were
+# falling short. z=1.2 / $30 moves the needle without flooding the feed.
+MIN_ABSOLUTE_DEVIATION_CENTS = 3000  # $30
+Z_SCORE_THRESHOLD = 1.2
 TOP_TRANSACTIONS = 3
 
 
@@ -129,9 +133,18 @@ class SpendingAnomalyGenerator(InsightGenerator):
             assert t.category_id is not None  # checked above
             by_category[t.category_id].append(t)
 
+        diag(
+            "spending_anomaly",
+            "start",
+            categories_with_spend=len(by_category),
+            txns_in_window=len(usable_rows),
+        )
+        cycle_counts: dict[str, int] = {}
         outputs: list[GeneratedInsight] = []
+        skipped_reasons: dict[str, int] = {}
         for category_id, txns in by_category.items():
             classification = classify_category_cycle(snapshot, category_id, today=today)
+            cycle_counts[classification.cycle] = cycle_counts.get(classification.cycle, 0) + 1
             anomaly = _build_anomaly(
                 txns,
                 cycle=classification.cycle,
@@ -140,6 +153,9 @@ class SpendingAnomalyGenerator(InsightGenerator):
                 monthly_buckets=monthly_buckets,
             )
             if anomaly is None:
+                skipped_reasons[classification.cycle] = (
+                    skipped_reasons.get(classification.cycle, 0) + 1
+                )
                 continue
             cat = cat_by_id[category_id]
             data = anomaly
@@ -194,6 +210,11 @@ class SpendingAnomalyGenerator(InsightGenerator):
                     llm_enhanced=enhanced.used_llm,
                 )
             )
+        for cycle_name, count in cycle_counts.items():
+            diag("spending_anomaly", "cycle_breakdown", cycle=cycle_name, count=count)
+        for cycle_name, count in skipped_reasons.items():
+            diag("spending_anomaly", "skipped_below_threshold", cycle=cycle_name, count=count)
+        diag("spending_anomaly", "finished", insights_emitted=len(outputs))
         return outputs
 
 

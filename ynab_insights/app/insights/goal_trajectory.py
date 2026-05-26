@@ -2,20 +2,32 @@
 
 For each Category with a non-zero goal target that is not yet 100% complete,
 project completion using YNAB's goal fields surfaced in the snapshot.
+
+If the user has NO goals configured in YNAB at all, the generator emits
+ONE empty-state card with card_type=goal_setup_prompt instead of zero
+cards. That card lists the user's top spending categories as candidate
+goal targets so the section never reads as "broken empty" — it always
+either shows real trajectories or a path to set one up.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from typing import ClassVar
 
 from pydantic import SecretStr
 
 from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
+from app.insights.diagnostics import diag
 from app.insights.llm import enhance_copy
-from app.insights.schemas import GoalTrajectoryData
+from app.insights.schemas import (
+    GoalSetupPromptCategory,
+    GoalSetupPromptData,
+    GoalTrajectoryData,
+)
 from app.snapshot.models import YnabSnapshot
+from app.snapshot.queries import spending_by_category
 
 
 def _add_months(start: date, months: int) -> date:
@@ -39,14 +51,28 @@ class GoalTrajectoryGenerator(InsightGenerator):
         categories = [
             c for c in snapshot.categories if c.goal_target_cents is not None and not c.hidden
         ]
+        diag(
+            "goal_trajectory",
+            "start",
+            total_categories=len(snapshot.categories),
+            categories_with_goals=len(categories),
+        )
+
+        if not categories:
+            prompt = _build_empty_state_prompt(snapshot, today)
+            diag("goal_trajectory", "empty_state", reason="no_goals_configured")
+            return [prompt] if prompt is not None else []
 
         outputs: list[GeneratedInsight] = []
+        skips: dict[str, int] = {}
         for cat in categories:
             target = cat.goal_target_cents or 0
             if target <= 0:
+                skips["zero_target"] = skips.get("zero_target", 0) + 1
                 continue
             percent = cat.goal_percentage_complete or 0
             if percent >= 100:
+                skips["already_complete"] = skips.get("already_complete", 0) + 1
                 continue
 
             remaining = cat.goal_overall_left_cents
@@ -117,4 +143,45 @@ class GoalTrajectoryGenerator(InsightGenerator):
                 )
             )
 
+        for reason, count in skips.items():
+            diag("goal_trajectory", "skipped", reason=reason, count=count)
+        diag("goal_trajectory", "finished", insights_emitted=len(outputs))
         return outputs
+
+
+def _build_empty_state_prompt(snapshot: YnabSnapshot, today: date) -> GeneratedInsight | None:
+    """Build the goal_setup_prompt card listing top spending categories.
+
+    Ranks by trailing 90d spend so the categories feel current. Returns
+    None on a snapshot with literally no expense activity (the empty
+    prompt would be a useless card with no candidates to suggest)."""
+    ninety_days_ago = today - timedelta(days=90)
+    top = spending_by_category(snapshot, ninety_days_ago, today)
+    # Only include real categories; the "Uncategorized" pseudo-id with
+    # category_id=None wouldn't be settable as a YNAB goal.
+    candidates = [row for row in top if row.category_id is not None][:5]
+    if not candidates:
+        return None
+
+    payload = GoalSetupPromptData(
+        top_categories=[
+            GoalSetupPromptCategory(
+                category_id=row.category_id,  # type: ignore[arg-type]
+                category_name=row.category_name or "Uncategorized",
+                # spent_cents is negative net spend; flip to positive.
+                monthly_avg_spend_cents=round(-row.spent_cents / 3),
+            )
+            for row in candidates
+        ]
+    )
+
+    return GeneratedInsight(
+        dedup_key=f"goal_setup_prompt:{snapshot.budget_id}:{today.strftime('%Y-%m')}",
+        title="Set a goal to start tracking",
+        summary=(
+            "No goals are set in YNAB yet. Pick one of your top spending "
+            "categories and set a target to see projected trajectories here."
+        ),
+        structured_data=payload.model_dump(mode="json"),
+        llm_enhanced=False,
+    )

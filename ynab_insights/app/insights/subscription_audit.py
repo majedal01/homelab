@@ -24,7 +24,6 @@ v2.6f loosens each of those while keeping the false-positive floor high:
 
 from __future__ import annotations
 
-import logging
 import re
 import statistics
 from collections import defaultdict
@@ -36,17 +35,17 @@ from typing import ClassVar
 from pydantic import SecretStr
 
 from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
+from app.insights.diagnostics import diag
 from app.insights.llm import enhance_copy
 from app.insights.schemas import Cadence, SubscriptionAuditData, TransactionRef
 from app.snapshot.models import YnabSnapshot
 from app.snapshot.queries import _internal_transfer_payee_ids, transactions_in_range
 
-logger = logging.getLogger(__name__)
-
 LOOKBACK_DAYS = 365
 
-# Cluster qualification.
-MIN_OCCURRENCES = 3
+# Cluster qualification. The 2-occurrence floor stays because real users
+# sometimes have only two charges visible in the lookback (mid-year signup,
+# annual subscription with one charge "this year" and one "last year").
 MIN_OCCURRENCES_WITH_TIGHT_INTERVALS = 2
 AMOUNT_TOLERANCE = 0.12  # +/-12% from cluster median
 
@@ -95,14 +94,6 @@ def _classify_cadence(median_interval: float) -> tuple[Cadence, int] | None:
     return None
 
 
-def _amount_within_tolerance(amounts: list[int]) -> bool:
-    """All amounts must sit within +/-AMOUNT_TOLERANCE of the cluster median."""
-    median = statistics.median(amounts)
-    if median == 0:
-        return False
-    return all(abs(a - median) / abs(median) <= AMOUNT_TOLERANCE for a in amounts)
-
-
 def _monthly_factor(cadence: Cadence) -> float:
     return {
         "weekly": 52 / 12,
@@ -137,6 +128,7 @@ class SubscriptionAuditGenerator(InsightGenerator):
         rows = transactions_in_range(snapshot, start, today)
         payees_by_id = snapshot.payee_by_id()
         internal_transfers = _internal_transfer_payee_ids(snapshot)
+        diag("subscription_audit", "start", txns_in_lookback=len(rows))
 
         # Group by (normalized_payee_key) — not (payee_id, exact_amount).
         # Amount tolerance is checked after grouping so a mid-window price
@@ -169,15 +161,29 @@ class SubscriptionAuditGenerator(InsightGenerator):
                 )
             )
 
+        diag(
+            "subscription_audit",
+            "normalized_groups",
+            count=len(grouped),
+            min_size=min((len(e) for e in grouped.values()), default=0),
+            max_size=max((len(e) for e in grouped.values()), default=0),
+        )
+
         clusters: list[_Cluster] = []
+        rejections: dict[str, int] = {}
         for _key, entries in grouped.items():
-            cluster = _qualify_cluster(entries)
-            if cluster is not None:
-                clusters.append(cluster)
+            found, reasons = _qualify_group(entries)
+            clusters.extend(found)
+            for reason in reasons:
+                rejections[reason] = rejections.get(reason, 0) + 1
+        for reason, count in rejections.items():
+            diag("subscription_audit", "rejected", reason=reason, count=count)
+        diag("subscription_audit", "qualified_clusters", count=len(clusters))
 
         outputs: list[GeneratedInsight] = []
         for cluster in clusters:
             outputs.append(await self._build_insight(cluster, anthropic_key, anthropic_model))
+        diag("subscription_audit", "finished", insights_emitted=len(outputs))
         return outputs
 
     async def _build_insight(
@@ -229,43 +235,97 @@ class SubscriptionAuditGenerator(InsightGenerator):
         )
 
 
-def _qualify_cluster(
-    entries: list[tuple[str, str, TransactionRef]],
-) -> _Cluster | None:
-    """Decide whether a normalized-payee bucket counts as a subscription."""
+Entry = tuple[str, str, TransactionRef]
+
+
+def _qualify_group(entries: list[Entry]) -> tuple[list[_Cluster], list[str]]:
+    """Find every qualifying subscription within one normalized-payee group.
+
+    Strategy:
+    1. Sub-cluster by amount band: pick the median amount, take everything
+       within +/-AMOUNT_TOLERANCE of it as one candidate, recurse on the
+       rest. This recovers v2.4's "Spotify $9.99 fires; Spotify $11.99
+       fires separately" behavior while still merging "NETFLIX.COM" and
+       "Netflix" payee strings via the normalized key.
+    2. For each amount-coherent sub-cluster, require >=2 occurrences and a
+       median interval inside the cadence band. The cadence band alone is
+       the spacing tolerance — no extra "target +/- 3d" gate, since real
+       monthly billing routinely lands at 34d due to posting-day jitter
+       and the band already says 25-35 is monthly.
+    """
     if len(entries) < MIN_OCCURRENCES_WITH_TIGHT_INTERVALS:
-        return None
+        return [], ["below_min_occurrences"]
+
+    qualified: list[_Cluster] = []
+    reasons: list[str] = []
+    pending: list[list[Entry]] = [list(entries)]
+    while pending:
+        sub = pending.pop()
+        if len(sub) < MIN_OCCURRENCES_WITH_TIGHT_INTERVALS:
+            if sub:
+                reasons.append("subcluster_below_min")
+            continue
+        inside, outside = _partition_by_amount(sub)
+        if not inside:
+            # Median fell between two amount peaks with no entry within
+            # tolerance — e.g., 5 at $9.99 and 5 at $14.99, median $12.49,
+            # nothing within +/-12% of $12.49. Without this guard we'd
+            # recurse forever on `outside == sub`.
+            reasons.append("amount_partition_stalled")
+            continue
+        if outside:
+            pending.append(outside)
+        cluster, reason = _qualify_amount_coherent(inside)
+        if cluster is not None:
+            qualified.append(cluster)
+        elif reason:
+            reasons.append(reason)
+    return qualified, reasons
+
+
+def _partition_by_amount(entries: list[Entry]) -> tuple[list[Entry], list[Entry]]:
+    """Split into (within +/-AMOUNT_TOLERANCE of mode, everything else).
+
+    Anchor on the mode rather than the median so an even split — 5
+    charges at $9.99 vs 5 at $14.99 — doesn't end up with a median that
+    sits between both peaks (which would put nothing inside the band and
+    stall recursion). `statistics.mode` returns the first-encountered
+    most-common value on ties, so single-amount clusters are stable too.
+    """
+    amounts = [e[2].amount_cents for e in entries]
+    anchor = statistics.mode(amounts)
+    if anchor == 0:
+        return entries, []
+    inside: list[Entry] = []
+    outside: list[Entry] = []
+    for entry in entries:
+        if abs(entry[2].amount_cents - anchor) / abs(anchor) <= AMOUNT_TOLERANCE:
+            inside.append(entry)
+        else:
+            outside.append(entry)
+    return inside, outside
+
+
+def _qualify_amount_coherent(
+    entries: list[Entry],
+) -> tuple[_Cluster | None, str | None]:
+    """Decide whether an amount-coherent sub-cluster is a subscription."""
+    if len(entries) < MIN_OCCURRENCES_WITH_TIGHT_INTERVALS:
+        return None, "subcluster_below_min"
 
     entries.sort(key=lambda e: e[2].date)
     refs = [ref for _pid, _pname, ref in entries]
     amounts = [r.amount_cents for r in refs]
-    if not _amount_within_tolerance(amounts):
-        return None
 
     intervals = [(refs[i].date - refs[i - 1].date).days for i in range(1, len(refs))]
     if not intervals:
-        return None
+        return None, "no_intervals"
     median_interval = statistics.median(intervals)
     classified = _classify_cadence(median_interval)
     if classified is None:
-        return None
-    cadence, target_days = classified
+        return None, "interval_outside_bands"
+    cadence, _target_days = classified
 
-    n = len(refs)
-    if n < MIN_OCCURRENCES:
-        # 2-occurrence cluster: only one interval exists, so CoV across
-        # intervals is undefined. Require the single interval to land
-        # within +/-3 days of the canonical target for the cadence —
-        # tighter than the cadence band itself.
-        if abs(intervals[0] - target_days) > 3:
-            return None
-    # 3+ occurrences: classify_cadence already vetted by-band, which is
-    # the tolerance budget. A CoV check would gate-keep rent-style
-    # intervals that wobble +/- a few days within the band.
-
-    # The displayed payee_id and name come from the most-frequent original
-    # payee_id in the cluster (the same merchant may appear with different
-    # internal payee_ids if YNAB created two entries for them).
     by_pid: dict[str, int] = defaultdict(int)
     name_by_pid: dict[str, str] = {}
     for pid, pname, _ref in entries:
@@ -273,10 +333,13 @@ def _qualify_cluster(
         name_by_pid[pid] = pname
     primary_pid = max(by_pid, key=lambda k: by_pid[k])
 
-    return _Cluster(
-        payee_id=primary_pid,
-        payee_name=name_by_pid[primary_pid],
-        median_amount_cents=int(statistics.median(amounts)),
-        occurrences=refs,
-        cadence=cadence,
+    return (
+        _Cluster(
+            payee_id=primary_pid,
+            payee_name=name_by_pid[primary_pid],
+            median_amount_cents=int(statistics.median(amounts)),
+            occurrences=refs,
+            cadence=cadence,
+        ),
+        None,
     )

@@ -29,6 +29,7 @@ from typing import ClassVar, Literal
 from pydantic import SecretStr
 
 from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
+from app.insights.diagnostics import diag
 from app.insights.llm import enhance_copy
 from app.insights.schemas import CategoryDriftData
 from app.snapshot.cycle import classify_category_cycle
@@ -58,10 +59,12 @@ class CategoryDriftGenerator(InsightGenerator):
         anthropic_model: str | None = None,
     ) -> Sequence[GeneratedInsight]:
         history = category_monthly_history(snapshot, LOOKBACK_MONTHS)
+        diag("category_drift", "start", categories_with_history=len(history))
         if not history:
             return []
         today = date.today()
         outputs: list[GeneratedInsight] = []
+        rejections: dict[str, int] = {}
 
         for cat in history:
             # category_monthly_history's last entry is the in-progress current
@@ -73,11 +76,15 @@ class CategoryDriftGenerator(InsightGenerator):
             # classifier check below.
             active_months = sum(1 for v in spend if v > 0)
             if active_months < 2:
+                rejections["under_two_active_months"] = (
+                    rejections.get("under_two_active_months", 0) + 1
+                )
                 continue
 
             classification = classify_category_cycle(snapshot, cat.category_id, today=today)
             cycle = classification.cycle
             if cycle == "irregular":
+                rejections["irregular_cycle"] = rejections.get("irregular_cycle", 0) + 1
                 continue
 
             if cycle == "annual":
@@ -93,14 +100,20 @@ class CategoryDriftGenerator(InsightGenerator):
             else:
                 # Not enough months of activity for QoQ. Spending Anomaly's
                 # shorter windows handle the recent-spike case.
+                rejections["short_history"] = rejections.get("short_history", 0) + 1
                 continue
 
             if drift is None:
+                rejections["drift_undefined"] = rejections.get("drift_undefined", 0) + 1
                 continue
             trail_avg, prior_avg, drift_pct, drift_cents = drift
             if abs(drift_pct) < DRIFT_PCT_THRESHOLD:
+                rejections["below_pct_threshold"] = rejections.get("below_pct_threshold", 0) + 1
                 continue
             if abs(drift_cents) < DRIFT_DOLLARS_THRESHOLD_CENTS:
+                rejections["below_dollar_threshold"] = (
+                    rejections.get("below_dollar_threshold", 0) + 1
+                )
                 continue
 
             direction: Literal["up", "down"] = "up" if drift_cents > 0 else "down"
@@ -161,6 +174,9 @@ class CategoryDriftGenerator(InsightGenerator):
                     llm_enhanced=enhanced.used_llm,
                 )
             )
+        for reason, count in rejections.items():
+            diag("category_drift", "rejected", reason=reason, count=count)
+        diag("category_drift", "finished", insights_emitted=len(outputs))
         return outputs
 
 

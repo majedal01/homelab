@@ -24,6 +24,7 @@ from typing import ClassVar, Literal
 from pydantic import SecretStr
 
 from app.insights.base import GeneratedInsight, InsightGenerator, register_generator
+from app.insights.diagnostics import diag
 from app.insights.llm import enhance_copy
 from app.insights.schemas import (
     YearInMoneyBiggestSingle,
@@ -99,11 +100,14 @@ class YearInMoneyGenerator(InsightGenerator):
         today = date.today()
         bounds = _period_bounds(snapshot, today)
         if bounds is None:
+            diag("year_in_money", "skipped", reason="under_min_history")
             return []
         kind, start, end, label = bounds
+        diag("year_in_money", "window", kind=kind, label=label)
 
         summary = period_summary(snapshot, start, end)
         if summary.transaction_count == 0:
+            diag("year_in_money", "skipped", reason="zero_transactions_in_window")
             return []
 
         on_budget = {a.id for a in snapshot.accounts if a.on_budget}
