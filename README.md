@@ -1,6 +1,6 @@
 # homelab
 
-A personal homelab platform for practicing enterprise software engineering patterns end to end on owned hardware.
+A personal homelab platform for testing AI tools, building fun projects, and tinkering with infrastructure on owned hardware, while maintaining enterprise SDLC standards.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ graph TD
 
 1. Feature branch off `main`, push, open a PR. [CI](.github/workflows/ci.yml) runs Ruff, mypy strict, and pytest on every PR.
 2. Merge into `main`. [Stage deploy](.github/workflows/deploy-stage.yml) fires automatically: build, push to ghcr.io, scp + ssh deploy over Tailscale, smoke-check `/health` on :8001. Stage is always whatever main is.
-3. Promote to prod via manual [prod deploy](.github/workflows/deploy-prod.yml) from the Actions UI. Same flow, deploys to :8002. The manual step is the intentional human gate before prod.
+3. Promote to prod via manual [prod deploy](.github/workflows/deploy-prod.yml) from the Actions UI. Same flow, deploys to :8002.
 
 Full design in [`docs/deployment.md`](docs/deployment.md).
 
@@ -51,24 +51,9 @@ An AI financial coach that lives alongside YNAB. Try the demo without signing up
 
 The app surfaces a feed of forward-looking cards (subscriptions, spending anomalies, cashflow forecasts, category projections, debt payoff, goal trajectories, category drift, year/quarter retrospectives). An agent (`Ask`) answers natural-language follow-ups via your provider's tool-use API. FastAPI + Next.js.
 
-- Source: [`ynab_insights/`](ynab_insights/) (backend + frontend live together)
+- Source: [`ynab_insights/`](ynab_insights/)
 - Design notes: [`ynab_insights/DESIGN.md`](ynab_insights/DESIGN.md)
-- Screenshots: [`ynab_insights/screenshots/`](ynab_insights/screenshots/) *(placeholder — to be populated)*
-
-## Skills demonstrated
-
-- Strict CI pipeline (Ruff lint and format, mypy strict, pytest) gating every PR. See [`ci.yml`](.github/workflows/ci.yml).
-- Two-environment CD: stage deploys automatically on merge, prod deploys via manual `workflow_dispatch` as an intentional gate. Both build versioned Docker images, push to ghcr.io, and roll the running container over SSH with a `/health` smoke check. See [`deploy-stage.yml`](.github/workflows/deploy-stage.yml) and [`deploy-prod.yml`](.github/workflows/deploy-prod.yml).
-- Zero-trust remote access: ephemeral CI runners join a Tailscale mesh with tag-based ACLs, so the VM never needs a public IP.
-- Stage and prod separated into isolated Compose stacks on the same host. Own Postgres volume, own host port. A stage outage can't reach prod data.
-
-## Platform roadmap
-
-- Cloudflare Tunnel to expose select services on public URLs without opening firewall ports.
-- Observability: Prometheus for metrics, Grafana for dashboards, Loki for log aggregation.
-- Infrastructure as code: Terraform or OpenTofu to declare the VM, Tailscale ACLs, and Cloudflare resources.
-
-Application-specific roadmaps live in each app's own folder.
+- Screenshots: [`ynab_insights/screenshots/`](ynab_insights/screenshots/)
 
 ## Repo structure
 
@@ -90,7 +75,3 @@ docker compose -f infra/compose/dev/docker-compose.yml up
 ```
 
 Frontend at `http://localhost:3000`, FastAPI at `http://localhost:8000`. Both hot-reload on source changes. Deployment details in [`docs/deployment.md`](docs/deployment.md).
-
-## Built with AI assistance
-
-Code in this repo was written with Claude (Anthropic) as a paired collaborator. The architecture, design decisions, and review of every change were mine; Claude accelerated boilerplate, surfaced edge cases, and drafted prose I could prune. Treating AI as a high-bandwidth pair, with the same review bar as any other contributor, is itself a skill this project is meant to demonstrate.
