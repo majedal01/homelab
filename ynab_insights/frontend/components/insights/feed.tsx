@@ -103,6 +103,7 @@ function prevOffset(current: number): string {
 }
 
 function filterDisplayName(cardType: string | null): string | null {
+  if (cardType && cardType.includes("goal_trajectory")) return "Goal";
   switch (cardType) {
     case "subscription_audit":
       return "Subscription";
@@ -110,8 +111,6 @@ function filterDisplayName(cardType: string | null): string | null {
       return "Anomaly";
     case "cashflow_forecast":
       return "Forecast";
-    case "goal_trajectory":
-      return "Goal";
     case "category_drift":
       return "Drift";
     case "year_in_money":

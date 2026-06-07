@@ -49,7 +49,11 @@ async def list_insights(
 ) -> list[InsightResponse]:
     insights = cast(list[Insight], session.insights)
     if card_type is not None:
-        insights = [i for i in insights if i.card_type == card_type]
+        # Comma-separated values let the UI group related card types under one
+        # filter (e.g. the Goals pill covers goal_trajectory, goal_setup_prompt,
+        # emergency_fund_coverage, savings_rate_trend).
+        wanted = {ct.strip() for ct in card_type.split(",") if ct.strip()}
+        insights = [i for i in insights if i.card_type in wanted]
     insights = sorted(insights, key=lambda i: i.refreshed_at, reverse=True)
     return [_to_response(i) for i in insights[offset : offset + limit]]
 
