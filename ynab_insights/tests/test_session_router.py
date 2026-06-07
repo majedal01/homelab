@@ -108,6 +108,21 @@ async def test_create_session_rejects_unknown_model(client: AsyncClient) -> None
     assert r.json()["detail"]["error"] == "unknown_model"
 
 
+async def test_models_catalog_endpoint_is_public(client: AsyncClient) -> None:
+    """The sign-in picker fetches the catalog before any session exists, so
+    the endpoint must work without a cookie and reflect the server allow-list."""
+    r = await client.get("/api/session/models")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body["providers"]) == {"anthropic", "openai"}
+    anthropic = body["providers"]["anthropic"]
+    values = [m["value"] for m in anthropic]
+    assert "claude-opus-4-8" in values
+    assert "claude-opus-4-7" not in values
+    assert all({"value", "label", "tagline"} <= m.keys() for m in anthropic)
+    assert body["defaults"]["anthropic"] in values
+
+
 async def test_create_session_rejects_bad_ynab_format(client: AsyncClient) -> None:
     r = await client.post(
         "/api/session",

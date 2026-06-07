@@ -9,12 +9,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  MODELS_BY_PROVIDER,
   detectProvider,
   type BudgetOption,
   type CreateSessionResponse,
   type LlmProvider,
+  type ModelCatalog,
   type ModelOption,
   type SessionErrorBody,
 } from "@/lib/api-types";
@@ -35,14 +34,40 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
   // Provider auto-detected from the key the user pastes. Anthropic-first
   // default because that's the most common case for this project.
   const [provider, setProvider] = React.useState<LlmProvider>("anthropic");
-  const [model, setModel] = React.useState<string>(DEFAULT_MODEL_BY_PROVIDER.anthropic);
+  // Model catalog is fetched from the backend (single source of truth) so the
+  // picker never drifts from what the server accepts. Null until loaded.
+  const [catalog, setCatalog] = React.useState<ModelCatalog | null>(null);
+  const [model, setModel] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch("/api/session/models")
+      .then((r) => (r.ok ? (r.json() as Promise<ModelCatalog>) : null))
+      .then((data) => {
+        if (!cancelled && data) setCatalog(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Keep the selected model valid for the current provider: when the catalog
+  // loads or the provider changes, fall back to that provider's default if the
+  // current selection isn't one of its options.
+  React.useEffect(() => {
+    if (!catalog) return;
+    const options = catalog.providers[provider] ?? [];
+    if (!options.some((o) => o.value === model)) {
+      setModel(catalog.defaults[provider] ?? options[0]?.value ?? null);
+    }
+  }, [catalog, provider, model]);
 
   function onLlmKeyInput(event: React.FormEvent<HTMLInputElement>): void {
     const value = event.currentTarget.value.trim();
     const detected = detectProvider(value);
     if (detected && detected !== provider) {
       setProvider(detected);
-      setModel(DEFAULT_MODEL_BY_PROVIDER[detected]);
     }
   }
 
@@ -60,7 +85,8 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
         body: JSON.stringify({
           ynab_token: ynabToken,
           llm_key: anthropicKey,
-          anthropic_model: model,
+          // Omit when the catalog hasn't loaded; the server picks its default.
+          anthropic_model: model ?? undefined,
         }),
       });
       if (!response.ok) {
@@ -182,6 +208,7 @@ export function OnboardingCard({ next }: OnboardingCardProps) {
             />
             <ModelPicker
               provider={provider}
+              models={catalog ? (catalog.providers[provider] ?? []) : null}
               value={model}
               onChange={setModel}
               disabled={submitting}
@@ -327,16 +354,17 @@ function Field({
 
 function ModelPicker({
   provider,
+  models,
   value,
   onChange,
   disabled,
 }: {
   provider: LlmProvider;
-  value: string;
+  models: ModelOption[] | null;
+  value: string | null;
   onChange: (v: string) => void;
   disabled?: boolean;
 }) {
-  const models: readonly ModelOption[] = MODELS_BY_PROVIDER[provider];
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between">
@@ -345,31 +373,35 @@ function ModelPicker({
           {provider === "anthropic" ? "Anthropic" : "OpenAI"}
         </span>
       </div>
-      <div className="grid gap-1.5 sm:grid-cols-3">
-        {models.map((m) => {
-          const active = m.value === value;
-          return (
-            <button
-              key={m.value}
-              type="button"
-              onClick={() => onChange(m.value)}
-              disabled={disabled}
-              aria-pressed={active}
-              className={cn(
-                "flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left text-xs transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                active
-                  ? "border-foreground bg-foreground/5"
-                  : "border-border bg-background hover:border-foreground/30",
-                disabled && "opacity-60",
-              )}
-            >
-              <span className="text-sm font-medium">{m.label}</span>
-              <span className="text-muted-foreground">{m.tagline}</span>
-            </button>
-          );
-        })}
-      </div>
+      {models === null ? (
+        <p className="text-xs text-muted-foreground">Loading models…</p>
+      ) : (
+        <div className="grid gap-1.5 sm:grid-cols-3">
+          {models.map((m) => {
+            const active = m.value === value;
+            return (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => onChange(m.value)}
+                disabled={disabled}
+                aria-pressed={active}
+                className={cn(
+                  "flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left text-xs transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  active
+                    ? "border-foreground bg-foreground/5"
+                    : "border-border bg-background hover:border-foreground/30",
+                  disabled && "opacity-60",
+                )}
+              >
+                <span className="text-sm font-medium">{m.label}</span>
+                <span className="text-muted-foreground">{m.tagline}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <p className="text-xs text-muted-foreground">
         You can&apos;t switch mid-session. End the session in Settings to re-pick.
       </p>

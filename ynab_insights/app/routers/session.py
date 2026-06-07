@@ -20,6 +20,7 @@ from app.demo import build_demo_insights, build_demo_snapshot
 from app.llm import (
     ALLOWED_MODELS,
     DEFAULT_MODEL_FOR_PROVIDER,
+    MODEL_CATALOG,
     InvalidApiKeyError,
     ProviderBillingError,
     ProviderUnavailableError,
@@ -84,6 +85,19 @@ class SelectBudgetRequest(BaseModel):
 class SessionErrorBody(BaseModel):
     error: str
     message: str
+
+
+class ModelOptionResponse(BaseModel):
+    value: str
+    label: str
+    tagline: str
+
+
+class ModelCatalogResponse(BaseModel):
+    """Public per-provider model catalog for the sign-in picker."""
+
+    providers: dict[str, list[ModelOptionResponse]]
+    defaults: dict[str, str]
 
 
 def _bad(code: str, message: str, http_status: int = status.HTTP_400_BAD_REQUEST) -> HTTPException:
@@ -162,6 +176,25 @@ async def _fetch_ynab_budgets(token: str) -> list[BudgetOption]:
     return [
         BudgetOption(id=b.id, name=b.name, last_modified_on=b.last_modified_on) for b in budgets
     ]
+
+
+@router.get("/models", response_model=ModelCatalogResponse)
+async def list_models() -> ModelCatalogResponse:
+    """Public LLM model catalog for the sign-in picker (no session required).
+
+    The single source of truth is `app/llm` — the picker renders whatever this
+    returns, so the model list never drifts from the server's allow-list.
+    """
+    return ModelCatalogResponse(
+        providers={
+            provider: [
+                ModelOptionResponse(value=o.value, label=o.label, tagline=o.tagline)
+                for o in options
+            ]
+            for provider, options in MODEL_CATALOG.items()
+        },
+        defaults={str(provider): model for provider, model in DEFAULT_MODEL_FOR_PROVIDER.items()},
+    )
 
 
 @router.post("", response_model=CreateSessionResponse)
