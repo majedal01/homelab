@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
+import pytest
+
 from app.insights.spending_anomaly import SpendingAnomalyGenerator
 from app.snapshot.models import Account, Category, Transaction, YnabSnapshot
 
@@ -118,6 +120,51 @@ async def test_monthly_category_quiet_when_only_a_week_of_spike() -> None:
         d = _first_of_month(today, i)
         txns.append(_txn(d, cat.id, -45000))
     txns.append(_txn(date(today.year, today.month, 1), cat.id, -45000))
+    snapshot = _snapshot([cat], txns)
+    insights = await SpendingAnomalyGenerator().run(snapshot, anthropic_key=None)
+    assert insights == []
+
+
+def _pin_today(monkeypatch: pytest.MonkeyPatch, d: date) -> None:
+    """Pin date.today() inside the generator while keeping date(...)
+    construction working, without subclassing date (which trips mypy)."""
+
+    class _DateProxy:
+        @staticmethod
+        def today() -> date:
+            return d
+
+        def __call__(self, year: int, month: int, day: int) -> date:
+            return date(year, month, day)
+
+    monkeypatch.setattr("app.insights.spending_anomaly.date", _DateProxy())
+
+
+async def test_monthly_partial_period_spike_fires() -> None:
+    """v2.6h same-day-of-month baseline: an elevated current month-to-date
+    is compared against prior months' same-day windows, not full months,
+    and fires. Charges land on the 1st so the test is run-day independent."""
+    today = date.today()
+    cat = Category(id="cat-shop", name="Shopping")
+    txns = [_txn(_first_of_month(today, i), cat.id, -10000) for i in range(12, 0, -1)]
+    txns.append(_txn(date(today.year, today.month, 1), cat.id, -40000))
+    snapshot = _snapshot([cat], txns)
+    insights = await SpendingAnomalyGenerator().run(snapshot, anthropic_key=None)
+    assert len(insights) == 1
+    assert insights[0].structured_data["cycle"] == "monthly"
+    assert insights[0].structured_data["current_period_spend_cents"] == 40000
+
+
+async def test_unposted_midmonth_charge_no_false_below(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A monthly bill that posts on the 20th hasn't posted by the 7th.
+    Same-day windows exclude it from BOTH current and baseline, so there
+    is no spurious 'below usual' card early in the month."""
+    _pin_today(monkeypatch, date(2026, 6, 7))
+    cat = Category(id="cat-bill", name="Phone Bill")
+    txns = [_txn(date(2025, m, 20), cat.id, -8000) for m in range(6, 13)]
+    txns += [_txn(date(2026, m, 20), cat.id, -8000) for m in range(1, 6)]
     snapshot = _snapshot([cat], txns)
     insights = await SpendingAnomalyGenerator().run(snapshot, anthropic_key=None)
     assert insights == []
