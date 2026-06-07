@@ -70,10 +70,13 @@ jobs:
             "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}:/home/deploy/stacks/prod/docker-compose.yml"
 
       - name: Sync env vars into .env on VM
-        # Persist the v2.6e env vars so they survive container restarts
-        # outside this deploy. REQUIRE_PROXY_HEADERS is idempotent;
-        # METRICS_ADMIN_TOKEN is replaced from the GitHub Secret on every
-        # deploy so rotation is just a re-run away.
+        # Persist platform env vars so they survive container restarts outside
+        # this deploy. REQUIRE_PROXY_HEADERS is idempotent; METRICS_ADMIN_TOKEN
+        # is replaced from the GitHub Secret on every deploy so rotation is just
+        # a re-run away.
+        # - LOG_GENERATOR_INTERNALS (v2.6h): idempotent, set if missing. Prod
+        #   now runs with diagnostics ON (matching stage) so generator misses
+        #   can be diagnosed from logs.
         env:
           ADMIN_TOKEN: ${{ secrets.METRICS_ADMIN_TOKEN }}
         run: |
@@ -81,6 +84,7 @@ jobs:
             "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
             "cd /home/deploy/stacks/prod && \
              grep -q '^REQUIRE_PROXY_HEADERS=' .env || echo 'REQUIRE_PROXY_HEADERS=true' >> .env && \
+             grep -q '^LOG_GENERATOR_INTERNALS=' .env || echo 'LOG_GENERATOR_INTERNALS=true' >> .env && \
              sed -i '/^METRICS_ADMIN_TOKEN=/d' .env && \
              printf 'METRICS_ADMIN_TOKEN=%s\n' '${ADMIN_TOKEN}' >> .env"
 
