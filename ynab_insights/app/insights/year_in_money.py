@@ -34,8 +34,10 @@ from app.insights.schemas import (
 )
 from app.snapshot.models import YnabSnapshot
 from app.snapshot.queries import (
+    _all_transfer_payee_ids,
     _internal_transfer_payee_ids,
     _is_income_category,
+    _is_special_payee,
     period_summary,
 )
 
@@ -114,6 +116,7 @@ class YearInMoneyGenerator(InsightGenerator):
         cat_by_id = snapshot.category_by_id()
         payees_by_id = snapshot.payee_by_id()
         internal_transfers = _internal_transfer_payee_ids(snapshot)
+        all_transfers = _all_transfer_payee_ids(snapshot)
 
         # Top 3 categories by net spend.
         top_categories = [
@@ -126,10 +129,14 @@ class YearInMoneyGenerator(InsightGenerator):
             if row.net_cents < 0
         ][:3]
 
-        # Top 5 payees by total outflow (in-range, excluding income + transfers).
-        payee_amounts: dict[str | None, int] = defaultdict(int)
-        payee_counts: dict[str | None, int] = defaultdict(int)
-        payee_names: dict[str | None, str] = {}
+        # Top 5 payees by NET outflow: inflows (refunds, credits) offset the
+        # matching outflows so a bought-then-returned purchase nets toward zero
+        # instead of showing full gross. Null-payee transactions, transfers
+        # (on- and off-budget), and YNAB's bookkeeping payees are excluded so
+        # they can't dominate the list.
+        net_by_payee: dict[str, int] = defaultdict(int)
+        count_by_payee: dict[str, int] = defaultdict(int)
+        payee_names: dict[str, str] = {}
         biggest: YearInMoneyBiggestSingle | None = None
         biggest_amount = 0
 
@@ -138,37 +145,44 @@ class YearInMoneyGenerator(InsightGenerator):
                 continue
             if not (start <= t.date <= end):
                 continue
-            if t.payee_id is not None and t.payee_id in internal_transfers:
+            if t.payee_id is not None and t.payee_id in all_transfers:
+                continue
+            payee = payees_by_id.get(t.payee_id) if t.payee_id else None
+            if payee is not None and _is_special_payee(payee.name):
                 continue
             cat = cat_by_id.get(t.category_id) if t.category_id else None
             cat_name = cat.name if cat else None
             if t.category_id is None or _is_income_category(cat_name):
                 continue
-            if t.amount_cents >= 0:
-                continue
-            outflow = -t.amount_cents  # positive
-            payee_amounts[t.payee_id] += outflow
-            payee_counts[t.payee_id] += 1
-            if t.payee_id is not None:
-                payee = payees_by_id.get(t.payee_id)
-                payee_names[t.payee_id] = payee.name if payee else "Unknown"
+            # Largest single spending moment: an outflow; payee optional.
             if t.amount_cents < biggest_amount:
                 biggest_amount = t.amount_cents
                 biggest = YearInMoneyBiggestSingle(
                     transaction_id=t.id,
                     date=t.date,
                     amount_cents=t.amount_cents,
-                    payee_name=payee_names.get(t.payee_id),
+                    payee_name=payee.name if payee else None,
                     category_name=cat_name,
                 )
+            # Payee ranking needs a real payee and nets signed amounts.
+            if t.payee_id is None:
+                continue
+            net_by_payee[t.payee_id] += t.amount_cents
+            if t.amount_cents < 0:
+                count_by_payee[t.payee_id] += 1
+            if payee is not None:
+                payee_names[t.payee_id] = payee.name
 
-        top_payee_ids = sorted(payee_amounts, key=lambda p: payee_amounts[p], reverse=True)[:5]
+        top_payee_ids = sorted(
+            (pid for pid, net in net_by_payee.items() if net < 0),
+            key=lambda p: net_by_payee[p],
+        )[:5]
         top_payees = [
             YearInMoneyTopPayee(
                 payee_id=pid,
-                payee_name=payee_names.get(pid, "Uncategorized payee"),
-                transaction_count=payee_counts[pid],
-                amount_cents=payee_amounts[pid],
+                payee_name=payee_names.get(pid, "Unknown"),
+                transaction_count=count_by_payee[pid],
+                amount_cents=-net_by_payee[pid],
             )
             for pid in top_payee_ids
         ]
