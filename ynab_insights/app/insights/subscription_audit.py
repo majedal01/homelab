@@ -38,8 +38,12 @@ from app.insights.base import GeneratedInsight, InsightGenerator, register_gener
 from app.insights.diagnostics import diag
 from app.insights.llm import enhance_copy
 from app.insights.schemas import Cadence, SubscriptionAuditData, TransactionRef
-from app.snapshot.models import YnabSnapshot
-from app.snapshot.queries import _internal_transfer_payee_ids, transactions_in_range
+from app.snapshot.models import Category, YnabSnapshot
+from app.snapshot.queries import (
+    _all_transfer_payee_ids,
+    _is_special_payee,
+    transactions_in_range,
+)
 
 LOOKBACK_DAYS = 365
 
@@ -78,6 +82,131 @@ _TRAILING_ID = re.compile(r"\s+[A-Z0-9]{8,}\b")
 _TRAILING_CITY_STATE = re.compile(r"\s+[A-Za-z][A-Za-z'.\- ]*\s+[A-Z]{2}\s*$")
 _PUNCTUATION = re.compile(r"[*#./\-_,()&]")
 _WHITESPACE = re.compile(r"\s+")
+
+
+# --- Subscription signal ----------------------------------------------------
+# A recurring same-payee charge only counts as a "subscription" when it has a
+# positive signal AND survives the exclusions. The positive signal is either a
+# category/group whose name reads as subscription-like, or a payee matching a
+# curated list of well-known subscription/streaming/membership merchants. This
+# keeps the card generic across budgets: users who file subs under a
+# "Subscriptions" category/group are caught by the keyword path; users who file
+# per-brand categories (e.g. a "Hulu" category) are caught by the merchant path.
+
+_SUBSCRIPTION_CATEGORY_KEYWORDS = ("subscription", "streaming", "membership")
+
+# Categories/groups that recur but are NOT subscriptions. Matched as substrings
+# against the lower-cased category name + group name. Over-matching is safe:
+# anything excluded would also have to clear the positive signal, and these are
+# never the streaming/membership costs we want to surface.
+_EXCLUDE_CATEGORY_KEYWORDS = (
+    "rent",
+    "mortgage",
+    "utilit",
+    "electric",
+    "water",
+    "natural gas",
+    "internet",
+    "cellphone",
+    "cell phone",
+    "insurance",
+    "loan",
+    "debt",
+    "interest",
+    "credit card payment",
+    "tax",
+)
+
+# Well-known subscription / streaming / membership merchants. Distinctive,
+# lower-cased substrings matched against the raw payee name. Ambiguous brands
+# (Amazon, Apple) use multi-word tokens so retail purchases don't match; the
+# recurrence + amount-coherence checks downstream catch any stragglers.
+_SUBSCRIPTION_MERCHANTS = frozenset(
+    {
+        "netflix",
+        "hulu",
+        "disney+",
+        "disneyplus",
+        "hbo",
+        "crunchyroll",
+        "funimation",
+        "youtube",
+        "paramount+",
+        "paramount plus",
+        "peacock",
+        "prime video",
+        "apple tv",
+        "espn+",
+        "sling",
+        "fubo",
+        "starz",
+        "showtime",
+        "mubi",
+        "spotify",
+        "apple music",
+        "tidal",
+        "pandora",
+        "amazon music",
+        "audible",
+        "siriusxm",
+        "deezer",
+        "icloud",
+        "apple.com/bill",
+        "apple services",
+        "google one",
+        "youtube premium",
+        "youtube music",
+        "dropbox",
+        "microsoft 365",
+        "office 365",
+        "adobe",
+        "1password",
+        "lastpass",
+        "notion",
+        "evernote",
+        "canva",
+        "grammarly",
+        "languagetool",
+        "amazon prime",
+        "costco",
+        "sam's club",
+        "patreon",
+        "twitch",
+        "nintendo",
+        "playstation",
+        "game pass",
+        "peloton",
+        "calm",
+        "headspace",
+        "nordvpn",
+        "expressvpn",
+        "nytimes",
+        "new york times",
+        "wall street journal",
+        "substack",
+        "masterclass",
+        "kindle unlimited",
+    }
+)
+
+
+def _category_text(cat: Category | None) -> str:
+    if cat is None:
+        return ""
+    return f"{cat.name or ''} {cat.category_group_name or ''}".lower()
+
+
+def _is_excluded_category(cat: Category | None) -> bool:
+    text = _category_text(cat)
+    return any(kw in text for kw in _EXCLUDE_CATEGORY_KEYWORDS)
+
+
+def _has_subscription_signal(payee_name: str, cat: Category | None) -> bool:
+    text = _category_text(cat)
+    if any(kw in text for kw in _SUBSCRIPTION_CATEGORY_KEYWORDS):
+        return True
+    low = payee_name.lower()
+    return any(m in low for m in _SUBSCRIPTION_MERCHANTS)
 
 
 def _normalize_payee(name: str) -> str:
@@ -137,22 +266,47 @@ class SubscriptionAuditGenerator(InsightGenerator):
         start = today - timedelta(days=LOOKBACK_DAYS)
         rows = transactions_in_range(snapshot, start, today)
         payees_by_id = snapshot.payee_by_id()
-        internal_transfers = _internal_transfer_payee_ids(snapshot)
+        cat_by_id = snapshot.category_by_id()
+        on_budget = {a.id for a in snapshot.accounts if a.on_budget}
+        transfer_payees = _all_transfer_payee_ids(snapshot)
         diag("subscription_audit", "start", txns_in_lookback=len(rows))
 
-        # Group by (normalized_payee_key) — not (payee_id, exact_amount).
-        # Amount tolerance is checked after grouping so a mid-window price
-        # change still lands inside one cluster.
+        # Gate each outflow down to genuine subscription candidates, then group
+        # by normalized payee key. A charge qualifies only if it has a positive
+        # subscription signal (category/group keyword or known merchant) and
+        # survives the exclusions (off-budget accounts, transfers, special
+        # payees, bill/debt/insurance/tax categories). This is what keeps
+        # recurring rent, loan payments, and utilities out of the card.
         grouped: dict[str, list[tuple[str, str, TransactionRef]]] = defaultdict(list)
+        drops: dict[str, int] = {}
+
+        def _drop(reason: str) -> None:
+            drops[reason] = drops.get(reason, 0) + 1
+
         for t in rows:
             if t.amount_cents >= 0:
                 continue
-            if t.payee_id is None:
+            if t.account_id not in on_budget:
+                _drop("off_budget_account")
                 continue
-            if t.payee_id in internal_transfers:
+            if t.payee_id is None:
+                _drop("no_payee")
+                continue
+            if t.payee_id in transfer_payees:
+                _drop("transfer")
                 continue
             payee = payees_by_id.get(t.payee_id)
             if payee is None:
+                continue
+            if _is_special_payee(payee.name):
+                _drop("special_payee")
+                continue
+            cat = cat_by_id.get(t.category_id) if t.category_id else None
+            if _is_excluded_category(cat):
+                _drop("excluded_category")
+                continue
+            if not _has_subscription_signal(payee.name, cat):
+                _drop("no_subscription_signal")
                 continue
             key = _normalize_payee(payee.name)
             if not key:
@@ -170,6 +324,9 @@ class SubscriptionAuditGenerator(InsightGenerator):
                     ),
                 )
             )
+
+        for reason, count in drops.items():
+            diag("subscription_audit", "gate_drop", reason=reason, count=count)
 
         diag(
             "subscription_audit",
