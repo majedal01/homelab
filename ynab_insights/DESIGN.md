@@ -288,11 +288,6 @@ without touching the main app logger. Field values must be safe to log
 (no payee names, no raw amounts) — these lines land in container logs by
 design.
 
-The switch is wired default-on in both stage and prod (v2.6h — prod was
-missing it from the compose env and the deploy env-sync entirely, so diag
-lines never emitted there). Set `LOG_GENERATOR_INTERNALS=false` in an
-env's `.env` to silence it.
-
 ## Rate limits + guardrails
 
 Per-session token-bucket middleware (`app/session/rate_limit.py`):
