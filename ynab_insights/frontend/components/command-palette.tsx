@@ -20,7 +20,10 @@ const CARD_TYPES: { value: string; label: string }[] = [
   { value: "subscription_audit", label: "Subscriptions" },
   { value: "spending_anomaly", label: "Spending anomalies" },
   { value: "cashflow_forecast", label: "Cashflow forecast" },
-  { value: "goal_trajectory", label: "Goals" },
+  {
+    value: "goal_trajectory,goal_setup_prompt,emergency_fund_coverage,savings_rate_trend",
+    label: "Goals",
+  },
   { value: "category_drift", label: "Category drift" },
   { value: "year_in_money", label: "Year in money" },
 ];

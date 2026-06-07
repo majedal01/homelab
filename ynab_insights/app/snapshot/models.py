@@ -27,6 +27,7 @@ class Category(BaseModel):
     id: str
     name: str
     category_group_id: str | None = None
+    category_group_name: str | None = None
     hidden: bool = False
     goal_type: str | None = None
     goal_target_cents: int | None = None

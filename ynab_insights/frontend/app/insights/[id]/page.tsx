@@ -14,6 +14,8 @@ import { CategoryProjectionDetail } from "@/components/insights/details/category
 import { DebtPayoffDetail } from "@/components/insights/details/debt-payoff-detail";
 import { GoalTrajectoryDetail } from "@/components/insights/details/goal-trajectory-detail";
 import { GoalSetupPromptDetail } from "@/components/insights/details/goal-setup-prompt-detail";
+import { EmergencyFundCoverageDetail } from "@/components/insights/details/emergency-fund-coverage-detail";
+import { SavingsRateTrendDetail } from "@/components/insights/details/savings-rate-trend-detail";
 import { CategoryDriftDetail } from "@/components/insights/details/category-drift-detail";
 import { YearInMoneyDetail } from "@/components/insights/details/year-in-money-detail";
 import { DismissButton } from "@/components/insights/dismiss-button";
@@ -28,6 +30,8 @@ const CARD_TYPE_LABEL: Record<InsightResponse["card_type"], string> = {
   debt_payoff: "Debt payoff",
   goal_trajectory: "Goal trajectory",
   goal_setup_prompt: "Set goals to track",
+  emergency_fund_coverage: "Emergency fund",
+  savings_rate_trend: "Savings rate",
   category_drift: "Category drift",
   year_in_money: "Year in money",
 };
@@ -49,6 +53,10 @@ function renderBody(insight: InsightResponse): React.ReactElement {
       return <GoalTrajectoryDetail data={data} />;
     case "goal_setup_prompt":
       return <GoalSetupPromptDetail data={data} />;
+    case "emergency_fund_coverage":
+      return <EmergencyFundCoverageDetail data={data} />;
+    case "savings_rate_trend":
+      return <SavingsRateTrendDetail data={data} />;
     case "category_drift":
       return <CategoryDriftDetail data={data} />;
     case "year_in_money":
@@ -73,6 +81,10 @@ function buildAskPrompt(insight: InsightResponse): string {
       return `Walk me through paydown strategies for ${data.account_name}. What's realistic if I add $100/mo?`;
     case "goal_setup_prompt":
       return "What categories make sense to set goals on first? Suggest targets I could enter in YNAB.";
+    case "emergency_fund_coverage":
+      return `My cash covers about ${data.coverage_months.toFixed(1)} months of expenses. How can I build toward ${data.target_months} months faster?`;
+    case "savings_rate_trend":
+      return "How is my savings rate trending over the last year, and what would move it up?";
     case "category_drift":
       return `What changed about my ${data.category_name} spending over the last year?`;
     case "year_in_money":
@@ -119,6 +131,16 @@ function buildExploreLink(insight: InsightResponse): { href: string; label: stri
       return {
         href: `/explore?view=categories`,
         label: "Open in Categories",
+      };
+    case "emergency_fund_coverage":
+      return {
+        href: `/explore?view=accounts`,
+        label: "Open accounts",
+      };
+    case "savings_rate_trend":
+      return {
+        href: `/explore?view=overview`,
+        label: "Open overview",
       };
     case "debt_payoff":
       return {

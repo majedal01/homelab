@@ -52,25 +52,32 @@ _ANNUAL_WINDOW_DAYS = 730
 _ANNUAL_MIN_OCCURRENCES = 2
 
 # Frequency shortcut: a category with this many txns in 365d is weekly,
-# regardless of interval shape. Groceries average ~3-7/wk = 150-350/year;
-# the floor is set well below the lower end so volatile-but-frequent
-# spend (Amazon, coffee, etc.) still lands in weekly.
-_WEEKLY_FREQUENCY_FLOOR = 40
+# regardless of interval shape. Groceries average ~3-7/wk = 150-350/year.
+# v2.6h lowers the floor (was 40) so a frequent-but-lumpy category — ~2+
+# charges a month with messy spacing (Amazon, coffee, rideshare) — lands
+# in weekly instead of failing the interval-shape checks and dropping to
+# irregular.
+_WEEKLY_FREQUENCY_FLOOR = 26
 
 # Coefficient of variation of intervals must stay below this for the
 # category to count as "regularly recurring." A true subscription has CoV
-# ~0.05; a clean monthly rent ~0.05; messy monthly with weekend jitter
-# ~0.15. Set the ceiling tight enough that a real "twice in a month plus
-# wide gaps" pattern (CoV ~0.5) falls through to irregular.
-_MAX_INTERVAL_COV = 0.4
+# ~0.05; clean monthly rent ~0.05; messy monthly with weekend jitter and
+# the odd skipped month runs higher. v2.6h raises the ceiling (was 0.4) so
+# real recurring spend with one or two irregular gaps still classifies
+# rather than falling to irregular.
+_MAX_INTERVAL_COV = 0.75
 
-# Interval bands in days. Picked wide enough to absorb the jitter of
-# "monthly" (28-32d months) and "quarterly" (varies by quarter length).
+# Interval bands in days. v2.6h makes them CONTIGUOUS (no dead zones): the
+# old bands left 11-19d (biweekly / semi-monthly), 46-59d, and 131-279d
+# unclassifiable, so those categories fell to irregular and Spending
+# Anomaly never evaluated them. Biweekly now reads as monthly (2 charges a
+# month -> a monthly total is meaningful); the wider quarterly/annual bands
+# only affect Category Drift, which evaluates those cadences.
 _BANDS: tuple[tuple[Cycle, int, int], ...] = (
     ("weekly", 1, 10),
-    ("monthly", 20, 45),
-    ("quarterly", 60, 130),
-    ("annual", 280, 400),
+    ("monthly", 11, 45),
+    ("quarterly", 46, 150),
+    ("annual", 151, 430),
 )
 
 

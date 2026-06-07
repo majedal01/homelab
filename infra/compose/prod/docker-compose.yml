@@ -22,4 +22,8 @@ services:
       # v2.6e: warn-only proxy-header check + metrics token gate.
       REQUIRE_PROXY_HEADERS: ${REQUIRE_PROXY_HEADERS:-false}
       METRICS_ADMIN_TOKEN: ${METRICS_ADMIN_TOKEN:-}
+      # v2.6h: per-step diagnostic logging across every generator. Wired into
+      # prod (was stage-only) so "why did this card miss" can be diagnosed
+      # from container logs without a debugger. Default-on; override per env.
+      LOG_GENERATOR_INTERNALS: ${LOG_GENERATOR_INTERNALS:-true}
     restart: unless-stopped

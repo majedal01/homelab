@@ -19,6 +19,8 @@ import { CategoryProjectionCard } from "@/components/insights/cards/category-pro
 import { DebtPayoffCard } from "@/components/insights/cards/debt-payoff-card";
 import { GoalTrajectoryCard } from "@/components/insights/cards/goal-trajectory-card";
 import { GoalSetupPromptCard } from "@/components/insights/cards/goal-setup-prompt-card";
+import { EmergencyFundCoverageCard } from "@/components/insights/cards/emergency-fund-coverage-card";
+import { SavingsRateTrendCard } from "@/components/insights/cards/savings-rate-trend-card";
 import { CategoryDriftCard } from "@/components/insights/cards/category-drift-card";
 import { YearInMoneyCard } from "@/components/insights/cards/year-in-money-card";
 
@@ -30,6 +32,8 @@ const CARD_TYPE_LABEL: Record<InsightResponse["card_type"], string> = {
   debt_payoff: "Debt",
   goal_trajectory: "Goal",
   goal_setup_prompt: "Goal",
+  emergency_fund_coverage: "Goal",
+  savings_rate_trend: "Goal",
   category_drift: "Drift",
   year_in_money: "Year in money",
 };
@@ -51,6 +55,10 @@ function CardBody({ insight }: { insight: InsightResponse }) {
       return <GoalTrajectoryCard data={data} />;
     case "goal_setup_prompt":
       return <GoalSetupPromptCard data={data} />;
+    case "emergency_fund_coverage":
+      return <EmergencyFundCoverageCard data={data} />;
+    case "savings_rate_trend":
+      return <SavingsRateTrendCard data={data} />;
     case "category_drift":
       return <CategoryDriftCard data={data} />;
     case "year_in_money":

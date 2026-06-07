@@ -5,12 +5,17 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
+// The Goals pill groups every goals-family card type so they share one
+// filter. list_insights accepts the comma-separated value.
+const GOALS_GROUP =
+  "goal_trajectory,goal_setup_prompt,emergency_fund_coverage,savings_rate_trend";
+
 const FILTERS: { value: string | null; label: string }[] = [
   { value: null, label: "All" },
   { value: "subscription_audit", label: "Subscriptions" },
   { value: "spending_anomaly", label: "Anomalies" },
   { value: "cashflow_forecast", label: "Forecast" },
-  { value: "goal_trajectory", label: "Goals" },
+  { value: GOALS_GROUP, label: "Goals" },
   { value: "category_drift", label: "Drift" },
   { value: "year_in_money", label: "Year in money" },
 ];
@@ -62,7 +67,10 @@ export function CardTypeFilter({
       >
         {FILTERS.map((f) => {
           const isActive = (f.value ?? null) === (active ?? null);
-          const count = f.value ? counts?.[f.value] : undefined;
+          // Grouped pills (comma-separated value) sum their members' counts.
+          const count = f.value
+            ? f.value.split(",").reduce((sum, v) => sum + (counts?.[v] ?? 0), 0)
+            : undefined;
           return (
             <button
               key={f.label}

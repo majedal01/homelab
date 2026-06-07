@@ -46,6 +46,7 @@ class YNABAccount(BaseModel):
 class YNABCategory(BaseModel):
     id: str
     category_group_id: str | None = None
+    category_group_name: str | None = None
     name: str
     hidden: bool = False
     # YNAB goal fields. All optional; only present when the user configured a goal
@@ -154,8 +155,14 @@ class YNABClient:
         payload = await self._get(f"/budgets/{budget_id}/categories")
         out: list[YNABCategory] = []
         for group in payload["data"]["category_groups"]:
+            group_name = group.get("name")
             for cat in group.get("categories", []):
-                out.append(YNABCategory.model_validate(cat))
+                category = YNABCategory.model_validate(cat)
+                # The category group's name only lives on the parent in YNAB's
+                # response; copy it down so downstream signals (subscription
+                # detection, bill exclusion) can match on group name.
+                category.category_group_name = group_name
+                out.append(category)
         return out
 
     async def list_payees(self, budget_id: str) -> list[YNABPayee]:
@@ -262,6 +269,7 @@ async def fetch_snapshot(token: str, budget_id: str) -> YnabSnapshot:
             id=c.id,
             name=c.name,
             category_group_id=c.category_group_id,
+            category_group_name=c.category_group_name,
             hidden=c.hidden,
             goal_type=c.goal_type,
             goal_target_cents=milliunits_to_cents(c.goal_target) if c.goal_target else None,

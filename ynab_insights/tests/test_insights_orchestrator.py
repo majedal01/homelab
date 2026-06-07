@@ -174,6 +174,50 @@ async def test_generators_run_in_parallel() -> None:
     assert all(r.status == "ok" for r in records)
 
 
+class _OverridesCardType(InsightGenerator):
+    """Registers as one card_type but emits a card of another, exercising
+    the GeneratedInsight.card_type override (e.g. the goals generator
+    emitting goal_setup_prompt / emergency_fund_coverage)."""
+
+    card_type: ClassVar[str] = "_test_parent"
+    cadence: ClassVar[str] = "daily"
+
+    async def run(
+        self,
+        snapshot: YnabSnapshot,
+        anthropic_key: SecretStr | None,
+        anthropic_model: str | None = None,
+    ) -> Sequence[GeneratedInsight]:
+        return [
+            GeneratedInsight(
+                dedup_key="override:1",
+                title="overridden",
+                summary="ok",
+                structured_data={"card_type": "_test_child"},
+                card_type="_test_child",
+            )
+        ]
+
+
+@pytest.mark.asyncio
+async def test_card_type_override_is_stamped_on_insight() -> None:
+    """The emitted card's own card_type wins over the generator's; the run
+    record still reflects the generator. This is what lets the goals
+    generator ship a goal_setup_prompt card instead of a goal_trajectory."""
+    merged, records, _ = await run_all_generators(
+        generators=[_OverridesCardType],
+        snapshot=_snapshot(),
+        anthropic_key=None,
+        anthropic_model=None,
+        existing={},
+        next_id=1,
+        next_run_id=1,
+    )
+    assert len(merged) == 1
+    assert merged[0].card_type == "_test_child"
+    assert records[0].card_type == "_test_parent"
+
+
 @pytest.mark.asyncio
 async def test_existing_insight_is_upserted_not_duplicated() -> None:
     snapshot = _snapshot()

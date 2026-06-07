@@ -55,6 +55,30 @@ def _internal_transfer_payee_ids(snapshot: YnabSnapshot) -> set[str]:
     }
 
 
+def _all_transfer_payee_ids(snapshot: YnabSnapshot) -> set[str]:
+    """Every transfer payee, regardless of the destination account's budget
+    status. Used where transfers should never count as spending at all —
+    e.g. subscription detection, where a transfer to an off-budget loan is a
+    debt payment, not a subscription."""
+    return {p.id for p in snapshot.payees if p.transfer_account_id is not None}
+
+
+# YNAB's auto-generated bookkeeping payees. These are never real spending and
+# should be excluded from any payee-level or subscription aggregation.
+_SPECIAL_PAYEE_FRAGMENTS = (
+    "starting balance",
+    "reconciliation balance adjustment",
+    "manual balance adjustment",
+)
+
+
+def _is_special_payee(name: str | None) -> bool:
+    if name is None:
+        return False
+    low = name.strip().lower()
+    return any(frag in low for frag in _SPECIAL_PAYEE_FRAGMENTS)
+
+
 def _is_excluded_transfer(
     txn: Transaction,
     internal_payee_ids: set[str],

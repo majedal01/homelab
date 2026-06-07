@@ -42,6 +42,11 @@ class GeneratedInsight:
     summary: str
     structured_data: dict[str, Any]
     llm_enhanced: bool = False
+    # Optional override: a generator may emit cards of a different card_type
+    # than its registration key (e.g. the goals generator emits
+    # emergency_fund_coverage / savings_rate_trend / goal_setup_prompt). When
+    # None, the orchestrator stamps the generator's own card_type.
+    card_type: str | None = None
 
 
 @dataclass
@@ -235,12 +240,13 @@ async def run_all_generators(
         for output in inv.outputs:
             key = (snapshot.budget_id, output.dedup_key)
             now = datetime.now(UTC)
+            card_type = output.card_type or inv.generator_cls.card_type
             prior = by_key.get(key)
             if prior is None:
                 insight = Insight(
                     id=next_id,
                     budget_id=snapshot.budget_id,
-                    card_type=inv.generator_cls.card_type,
+                    card_type=card_type,
                     dedup_key=output.dedup_key,
                     title=output.title,
                     summary=output.summary,
@@ -252,7 +258,7 @@ async def run_all_generators(
                 next_id += 1
                 by_key[key] = insight
                 created += 1
-                metrics.insights_generated_total.labels(card_type=inv.generator_cls.card_type).inc()
+                metrics.insights_generated_total.labels(card_type=card_type).inc()
             else:
                 prior.title = output.title
                 prior.summary = output.summary

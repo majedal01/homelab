@@ -102,21 +102,33 @@ def test_single_etsy_purchase_is_irregular() -> None:
 
 
 def test_noisy_intervals_fall_back_to_irregular() -> None:
-    """Same monthly category but the user paid twice mid-month sometimes;
-    interval CoV blows past the regularity threshold."""
+    """Genuinely erratic spacing — bursts of charges days apart separated
+    by multi-month gaps. v2.6h relaxed the CoV ceiling to 0.75, so this
+    fixture is built well past it (CoV ~0.95) to confirm the safety
+    property still holds: wildly irregular cadence -> irregular."""
     dates = [
         date(2025, 6, 1),
-        date(2025, 6, 18),
-        date(2025, 7, 2),
-        date(2025, 8, 15),
-        date(2025, 9, 30),
-        date(2025, 11, 10),
-        date(2026, 2, 1),
-        date(2026, 3, 4),
+        date(2025, 6, 4),
+        date(2025, 8, 3),
+        date(2025, 8, 8),
+        date(2025, 11, 6),
+        date(2025, 11, 13),
+        date(2026, 3, 13),
     ]
     txns = [_txn(d, RENT.id, amount=-50000) for d in dates]
     result = classify_category_cycle(_snapshot(txns, [RENT]), RENT.id, today=TODAY)
     assert result.cycle == "irregular"
+
+
+def test_biweekly_classifies_as_monthly_not_irregular() -> None:
+    """v2.6h fills the 11-19 day band gap: a biweekly category (~14d
+    median) now classifies as monthly instead of dropping to irregular,
+    so Spending Anomaly evaluates it."""
+    # 18 charges, 14 days apart: under the 26/yr frequency floor, so it is
+    # classified by interval shape (median 14d -> monthly band 11-45).
+    txns = [_txn(TODAY - timedelta(days=14 * i), GROC.id, amount=-6000) for i in range(1, 19)]
+    result = classify_category_cycle(_snapshot(txns, [GROC]), GROC.id, today=TODAY)
+    assert result.cycle == "monthly"
 
 
 def test_internal_transfers_are_excluded() -> None:

@@ -127,6 +127,8 @@ export type CardType =
   | "debt_payoff"
   | "goal_trajectory"
   | "goal_setup_prompt"
+  | "emergency_fund_coverage"
+  | "savings_rate_trend"
   | "category_drift"
   | "year_in_money";
 
@@ -257,6 +259,30 @@ export interface GoalTrajectoryData {
   on_track: boolean | null;
 }
 
+export interface EmergencyFundCoverageData {
+  card_type: "emergency_fund_coverage";
+  cash_balance_cents: number;
+  avg_monthly_spending_cents: number;
+  coverage_months: number;
+  months_of_history: number;
+  target_months: number;
+}
+
+export interface SavingsRatePoint {
+  year: number;
+  month: number;
+  savings_rate: number | null;
+}
+
+export interface SavingsRateTrendData {
+  card_type: "savings_rate_trend";
+  points: SavingsRatePoint[];
+  average_savings_rate: number | null;
+  latest_savings_rate: number | null;
+  direction: "up" | "down" | "flat";
+  months_of_history: number;
+}
+
 export interface CategoryDriftData {
   card_type: "category_drift";
   category_id: string;
@@ -317,6 +343,8 @@ export type InsightStructuredData =
   | DebtPayoffData
   | GoalTrajectoryData
   | GoalSetupPromptData
+  | EmergencyFundCoverageData
+  | SavingsRateTrendData
   | CategoryDriftData
   | YearInMoneyData;
 

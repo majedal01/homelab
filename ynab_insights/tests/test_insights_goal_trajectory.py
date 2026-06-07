@@ -1,18 +1,15 @@
-"""Goal Trajectory (v2.6g): empty-state branch.
+"""Goals generator (v2.6h): inferred-progress cards.
 
-Existing v2.4 behavior (real trajectory cards when goals exist) wasn't
-covered by tests. v2.6g adds:
-
-- When the user has no goals: emit ONE goal_setup_prompt card listing
-  top spending categories.
-- When goals exist: emit per-category trajectory cards as before.
-- When goals exist AND none qualify (all 100% complete): zero output is
-  OK; the section will be empty rather than mis-prompted.
+Native per-category trajectory cards were dropped (users barely set YNAB
+goals). The generator now emits emergency_fund_coverage and
+savings_rate_trend, falling back to goal_setup_prompt when neither can be
+computed. Each emitted card carries its own card_type via
+GeneratedInsight.card_type.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any
 
 from app.insights.goal_trajectory import GoalTrajectoryGenerator
@@ -24,128 +21,124 @@ CHECKING = Account(
     type="checking",
     on_budget=True,
     closed=False,
-    balance_cents=500000,
+    balance_cents=600000,  # $6,000 liquid cash
 )
+GROC = Category(id="cat-groc", name="Groceries")
 
 
-def _snapshot(cats: list[Category], txns: list[Transaction]) -> YnabSnapshot:
+def _month_first(today: date, months_back: int) -> date:
+    y, m = today.year, today.month
+    for _ in range(months_back):
+        if m == 1:
+            y, m = y - 1, 12
+        else:
+            m -= 1
+    return date(y, m, 1)
+
+
+def _snapshot(txns: list[Transaction], *, accounts: list[Account] | None = None) -> YnabSnapshot:
     return YnabSnapshot(
         budget_id="b1",
         budget_name="b1",
         currency_iso="USD",
         fetched_at=datetime(2026, 5, 25),
-        accounts=[CHECKING],
-        categories=cats,
+        accounts=accounts if accounts is not None else [CHECKING],
+        categories=[GROC],
         payees=[],
         transactions=txns,
     )
 
 
-def _txn(d: date, cat_id: str, amount: int, **kw: Any) -> Transaction:
+def _txn(d: date, amount: int, *, category_id: str | None = "cat-groc", **kw: Any) -> Transaction:
     return Transaction(
-        id=f"t-{cat_id}-{d.isoformat()}-{amount}",
+        id=f"t-{d.isoformat()}-{amount}",
         date=d,
         amount_cents=amount,
         account_id="acct-1",
-        category_id=cat_id,
+        category_id=category_id,
         **kw,
     )
 
 
-async def test_no_goals_emits_setup_prompt() -> None:
-    """User has spending categories but none have goal_target_cents."""
+async def test_emergency_fund_and_savings_rate_emitted() -> None:
+    """Six complete months of $3,000 spend and $5,000 income, $6,000 cash:
+    coverage ~2 months and a 40% savings rate."""
     today = date.today()
-    cats = [
-        Category(id="cat-groc", name="Groceries"),
-        Category(id="cat-rent", name="Rent"),
-        Category(id="cat-fun", name="Fun"),
-    ]
     txns: list[Transaction] = []
-    # Some spending so candidates are non-empty
-    for d_offset in (60, 30, 10):
-        txns.append(_txn(today - timedelta(days=d_offset), "cat-rent", -150000))
-        txns.append(_txn(today - timedelta(days=d_offset), "cat-groc", -40000))
-        txns.append(_txn(today - timedelta(days=d_offset), "cat-fun", -10000))
-    snapshot = _snapshot(cats, txns)
-    insights = await GoalTrajectoryGenerator().run(snapshot, anthropic_key=None)
+    for i in range(1, 7):  # six complete prior months
+        first = _month_first(today, i)
+        txns.append(_txn(first, 500000, category_id=None))  # income -> RTA/null
+        txns.append(_txn(first, -300000))  # spending
+    insights = await GoalTrajectoryGenerator().run(_snapshot(txns), anthropic_key=None)
+    by_type = {i.card_type: i for i in insights}
+    assert set(by_type) == {"emergency_fund_coverage", "savings_rate_trend"}
+
+    ef = by_type["emergency_fund_coverage"].structured_data
+    assert ef["card_type"] == "emergency_fund_coverage"
+    assert ef["coverage_months"] == 2.0
+    assert ef["avg_monthly_spending_cents"] == 300000
+
+    sr = by_type["savings_rate_trend"].structured_data
+    assert sr["card_type"] == "savings_rate_trend"
+    assert sr["average_savings_rate"] == 0.4
+    assert sr["latest_savings_rate"] == 0.4
+
+
+async def test_savings_rate_direction_up() -> None:
+    """Savings rate climbs across the window -> direction 'up'."""
+    today = date.today()
+    txns: list[Transaction] = []
+    # Older months: lower savings rate; recent months: higher.
+    plan = {6: -400000, 5: -400000, 4: -350000, 3: -200000, 2: -150000, 1: -100000}
+    for months_back, spend in plan.items():
+        first = _month_first(today, months_back)
+        txns.append(_txn(first, 500000, category_id=None))
+        txns.append(_txn(first, spend))
+    insights = await GoalTrajectoryGenerator().run(_snapshot(txns), anthropic_key=None)
+    sr = next(i.structured_data for i in insights if i.card_type == "savings_rate_trend")
+    assert sr["direction"] == "up"
+
+
+async def test_falls_back_to_goal_setup_prompt() -> None:
+    """No income and no completed-month spending history -> neither inferred
+    card computes -> goal_setup_prompt fallback, stamped goal_setup_prompt."""
+    today = date.today()
+    # Spending only in the current (partial) month, which is dropped from the
+    # complete-month baseline; no income at all.
+    txns = [_txn(date(today.year, today.month, 1), -100000)]
+    insights = await GoalTrajectoryGenerator().run(_snapshot(txns), anthropic_key=None)
     assert len(insights) == 1
-    payload = insights[0].structured_data
-    assert payload["card_type"] == "goal_setup_prompt"
-    # Top categories ranked by spend
-    cat_ids = [c["category_id"] for c in payload["top_categories"]]
-    assert cat_ids[0] == "cat-rent", f"Expected Rent first, got {cat_ids}"
+    assert insights[0].card_type == "goal_setup_prompt"
+    assert insights[0].structured_data["card_type"] == "goal_setup_prompt"
 
 
-async def test_no_goals_no_spending_no_card() -> None:
-    """User has no goals AND no spending -> no candidates -> no card.
-    Better empty-empty than a card that says 'set a goal on nothing'."""
-    cats = [Category(id="cat-x", name="X")]
-    snapshot = _snapshot(cats, [])
-    insights = await GoalTrajectoryGenerator().run(snapshot, anthropic_key=None)
+async def test_no_data_emits_nothing() -> None:
+    """Empty snapshot: no inferred cards, and no spending candidates for the
+    prompt -> emit nothing rather than a useless card."""
+    insights = await GoalTrajectoryGenerator().run(_snapshot([]), anthropic_key=None)
     assert insights == []
 
 
-async def test_user_with_goals_emits_trajectory_cards() -> None:
-    """When goals exist, the empty-state prompt should NOT fire — just
-    real trajectory cards."""
+async def test_negative_cash_skips_emergency_fund() -> None:
+    """If liquid cash is negative we can't express meaningful coverage; the
+    emergency-fund card is skipped (savings rate may still fire)."""
     today = date.today()
-    cats = [
-        Category(
-            id="cat-vac",
-            name="Vacation",
-            goal_target_cents=200000,
-            goal_percentage_complete=40,
-            goal_overall_left_cents=120000,
-            goal_months_to_budget=8,
-            goal_type="TBD",
-        ),
-    ]
-    snapshot = _snapshot(cats, [_txn(today, "cat-vac", -1000)])
-    insights = await GoalTrajectoryGenerator().run(snapshot, anthropic_key=None)
-    assert len(insights) == 1
-    assert insights[0].structured_data["card_type"] == "goal_trajectory"
-
-
-async def test_all_goals_complete_falls_back_to_empty_state() -> None:
-    """User has goals in YNAB but every one is 100% complete. v2.6g
-    initially returned zero cards here — now falls back to the empty-
-    state prompt so the Goals section is never silently empty."""
-    today = date.today()
-    cats = [
-        Category(
-            id="cat-done",
-            name="Vacation",
-            goal_target_cents=200000,
-            goal_percentage_complete=100,
-            goal_overall_left_cents=0,
-            goal_months_to_budget=0,
-            goal_type="TBD",
-        ),
-        Category(id="cat-groc", name="Groceries"),
-    ]
-    txns = [_txn(today - timedelta(days=10), "cat-groc", -40000)]
-    snapshot = _snapshot(cats, txns)
-    insights = await GoalTrajectoryGenerator().run(snapshot, anthropic_key=None)
-    assert len(insights) == 1
-    assert insights[0].structured_data["card_type"] == "goal_setup_prompt"
-
-
-async def test_zero_target_goals_fall_back_to_empty_state() -> None:
-    """Same idea: every goal-tagged category has target 0, so loop
-    skips them all -> empty-state prompt."""
-    today = date.today()
-    cats = [
-        Category(
-            id="cat-empty",
-            name="Empty goal",
-            goal_target_cents=0,
-            goal_percentage_complete=0,
-            goal_type="TBD",
-        ),
-        Category(id="cat-groc", name="Groceries"),
-    ]
-    txns = [_txn(today - timedelta(days=5), "cat-groc", -40000)]
-    snapshot = _snapshot(cats, txns)
-    insights = await GoalTrajectoryGenerator().run(snapshot, anthropic_key=None)
-    assert len(insights) == 1
-    assert insights[0].structured_data["card_type"] == "goal_setup_prompt"
+    overdrawn = Account(
+        id="acct-1",
+        name="Checking",
+        type="checking",
+        on_budget=True,
+        closed=False,
+        balance_cents=-5000,
+    )
+    txns: list[Transaction] = []
+    for i in range(1, 7):
+        first = _month_first(today, i)
+        txns.append(_txn(first, 500000, category_id=None))
+        txns.append(_txn(first, -300000))
+    insights = await GoalTrajectoryGenerator().run(
+        _snapshot(txns, accounts=[overdrawn]), anthropic_key=None
+    )
+    types = {i.card_type for i in insights}
+    assert "emergency_fund_coverage" not in types
+    assert "savings_rate_trend" in types

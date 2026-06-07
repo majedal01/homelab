@@ -67,13 +67,20 @@ def _week_buckets(today: date) -> list[tuple[date, date]]:
 
 
 def _month_buckets(today: date) -> list[tuple[date, date]]:
-    """Trailing 13 calendar months ending in today's month. Last entry is
-    the current month-to-date."""
+    """Trailing 13 months, each truncated to today's day-of-month.
+
+    v2.6h fix: the current month is only ever month-to-date, so comparing
+    it against FULL prior months made every category look like it spent far
+    below normal early in the month (and suppressed genuine spikes). We now
+    build same-day-of-month windows — Jun 1-7 vs May 1-7, Apr 1-7, ... — so
+    the partial current period is judged against equivalent partial history.
+    A recurring charge that hasn't posted yet this month is also absent from
+    the baseline windows, so it can't read as an anomalous drop."""
+    day_cap = today.day
     out: list[tuple[date, date]] = []
     year, month = today.year, today.month
-    months_back = BASELINE_MONTHS
     starts: list[tuple[int, int]] = []
-    for _ in range(months_back + 1):
+    for _ in range(BASELINE_MONTHS + 1):
         starts.append((year, month))
         if month == 1:
             year, month = year - 1, 12
@@ -82,7 +89,8 @@ def _month_buckets(today: date) -> list[tuple[date, date]]:
     starts.reverse()
     for y, m in starts:
         start = date(y, m, 1)
-        end = date(y, m, monthrange(y, m)[1])
+        last = monthrange(y, m)[1]
+        end = date(y, m, min(day_cap, last))
         out.append((start, end))
     return out
 
