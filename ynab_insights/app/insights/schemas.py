@@ -22,6 +22,8 @@ CardType = Literal[
     "debt_payoff",
     "goal_trajectory",
     "goal_setup_prompt",
+    "emergency_fund_coverage",
+    "savings_rate_trend",
     "category_drift",
     "year_in_money",
 ]
@@ -150,6 +152,36 @@ class GoalSetupPromptData(BaseModel):
     top_categories: list[GoalSetupPromptCategory]
 
 
+class EmergencyFundCoverageData(BaseModel):
+    """Inferred-progress card: how many months of expenses your liquid cash
+    covers, derived without any configured YNAB goal."""
+
+    card_type: Literal["emergency_fund_coverage"] = "emergency_fund_coverage"
+    cash_balance_cents: int  # liquid cash: open checking/savings/cash accounts
+    avg_monthly_spending_cents: int  # positive; mean over trailing complete months
+    coverage_months: float  # cash_balance / avg_monthly_spending
+    months_of_history: int  # number of complete months averaged
+    target_months: int = 6  # conventional emergency-fund target, for context
+
+
+class SavingsRatePoint(BaseModel):
+    year: int
+    month: int
+    savings_rate: float | None  # 0..1; null when the month had no income
+
+
+class SavingsRateTrendData(BaseModel):
+    """Inferred-progress card: monthly savings rate over the trailing year,
+    derived from income vs spending without any configured goal."""
+
+    card_type: Literal["savings_rate_trend"] = "savings_rate_trend"
+    points: list[SavingsRatePoint]  # oldest first
+    average_savings_rate: float | None  # mean over months with income
+    latest_savings_rate: float | None  # most recent month with income
+    direction: Literal["up", "down", "flat"]
+    months_of_history: int
+
+
 class CategoryDriftData(BaseModel):
     card_type: Literal["category_drift"] = "category_drift"
     category_id: str
@@ -232,6 +264,8 @@ InsightStructuredData = Annotated[
     | DebtPayoffData
     | GoalTrajectoryData
     | GoalSetupPromptData
+    | EmergencyFundCoverageData
+    | SavingsRateTrendData
     | CategoryDriftData
     | YearInMoneyData,
     Field(discriminator="card_type"),
