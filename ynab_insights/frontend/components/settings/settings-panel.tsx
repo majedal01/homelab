@@ -138,6 +138,6 @@ function formatRelative(iso: string): string {
 function modelLabel(modelId: string): string {
   if (modelId.startsWith("claude-haiku")) return "Haiku 4.5";
   if (modelId.startsWith("claude-sonnet")) return "Sonnet 4.6";
-  if (modelId.startsWith("claude-opus")) return "Opus 4.7";
+  if (modelId.startsWith("claude-opus")) return "Opus 4.8";
   return modelId;
 }

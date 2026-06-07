@@ -1,4 +1,5 @@
 import type { SavingsRateTrendData } from "@/lib/api-types";
+import { barColor, barHeightPct, rateRange } from "@/lib/savings-rate";
 
 const DIRECTION_LABEL: Record<SavingsRateTrendData["direction"], string> = {
   up: "trending up",
@@ -32,23 +33,19 @@ export function SavingsRateTrendCard({ data }: { data: SavingsRateTrendData }) {
 }
 
 function SavingsSparkline({ points }: { points: SavingsRateTrendData["points"] }) {
+  // Normalize bar heights across the actual data range so the trend is visible
+  // even when every month is negative (a flat row of floored bars otherwise);
+  // sign is conveyed by color, not height.
+  const [min, max] = rateRange(points);
   return (
     <div className="flex h-10 items-end gap-0.5" aria-hidden>
-      {points.map((p, i) => {
-        const rate = p.savings_rate;
-        if (rate === null) {
-          return <div key={i} className="flex-1 rounded-sm bg-muted/40" style={{ height: "8%" }} />;
-        }
-        const height = Math.max(4, Math.min(rate, 1) * 100);
-        const color = rate < 0 ? "bg-destructive/60" : "bg-primary/70";
-        return (
-          <div
-            key={i}
-            className={`flex-1 rounded-sm ${color}`}
-            style={{ height: `${height}%` }}
-          />
-        );
-      })}
+      {points.map((p, i) => (
+        <div
+          key={i}
+          className={`flex-1 rounded-sm ${barColor(p.savings_rate)}`}
+          style={{ height: `${barHeightPct(p.savings_rate, min, max)}%` }}
+        />
+      ))}
     </div>
   );
 }

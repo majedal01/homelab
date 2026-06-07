@@ -42,10 +42,6 @@ class GeneratedInsight:
     summary: str
     structured_data: dict[str, Any]
     llm_enhanced: bool = False
-    # Optional override: a generator may emit cards of a different card_type
-    # than its registration key (e.g. the goals generator emits
-    # emergency_fund_coverage / savings_rate_trend / goal_setup_prompt). When
-    # None, the orchestrator stamps the generator's own card_type.
     card_type: str | None = None
 
 

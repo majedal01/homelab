@@ -41,47 +41,16 @@ export interface ModelOption {
   tagline: string;
 }
 
-export const MODELS_BY_PROVIDER: Record<LlmProvider, readonly ModelOption[]> = {
-  anthropic: [
-    {
-      value: "claude-haiku-4-5-20251001",
-      label: "Haiku 4.5",
-      tagline: "Fast and inexpensive. Good default.",
-    },
-    {
-      value: "claude-sonnet-4-6",
-      label: "Sonnet 4.6",
-      tagline: "Balanced for the LLM-narrated cards.",
-    },
-    {
-      value: "claude-opus-4-7",
-      label: "Opus 4.7",
-      tagline: "Most capable. Slower and pricier.",
-    },
-  ],
-  openai: [
-    {
-      value: "gpt-5-mini",
-      label: "GPT-5 mini",
-      tagline: "Fast and inexpensive. Good default.",
-    },
-    {
-      value: "gpt-5",
-      label: "GPT-5",
-      tagline: "Balanced for the LLM-narrated cards.",
-    },
-    {
-      value: "o4-mini",
-      label: "o4-mini",
-      tagline: "Reasoning model. Slower but thorough.",
-    },
-  ],
-};
-
-export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProvider, string> = {
-  anthropic: "claude-haiku-4-5-20251001",
-  openai: "gpt-5-mini",
-};
+/**
+ * Per-provider model catalog returned by `GET /api/session/models`. The server
+ * (`app/llm`) owns the list and its allow-list; the picker fetches and renders
+ * whatever this returns, so the options never drift from what the server
+ * accepts. Mirrors `ModelCatalogResponse` in `app/routers/session.py`.
+ */
+export interface ModelCatalog {
+  providers: Record<LlmProvider, ModelOption[]>;
+  defaults: Record<LlmProvider, string>;
+}
 
 /** Mirror of `app/llm/detect.py::detect_provider`. Returns null on no match. */
 export function detectProvider(key: string): LlmProvider | null {

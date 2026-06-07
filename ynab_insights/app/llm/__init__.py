@@ -31,6 +31,8 @@ from app.llm.base import (
 from app.llm.detect import (
     ALLOWED_MODELS,
     DEFAULT_MODEL_FOR_PROVIDER,
+    MODEL_CATALOG,
+    ModelOption,
     detect_provider,
 )
 from app.llm.registry import build_provider
@@ -38,6 +40,8 @@ from app.llm.registry import build_provider
 __all__ = [
     "ALLOWED_MODELS",
     "DEFAULT_MODEL_FOR_PROVIDER",
+    "MODEL_CATALOG",
+    "ModelOption",
     "DoneEvent",
     "EnhancedCopyResult",
     "ErrorEvent",

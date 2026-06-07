@@ -1,4 +1,5 @@
 import type { SavingsRateTrendData } from "@/lib/api-types";
+import { barColor, barHeightPct, rateRange } from "@/lib/savings-rate";
 
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -28,22 +29,19 @@ export function SavingsRateTrendDetail({ data }: { data: SavingsRateTrendData })
           Monthly savings rate
         </div>
         <div className="mt-3 flex h-32 items-end gap-1">
-          {data.points.map((p, i) => {
-            const rate = p.savings_rate;
-            const height = rate === null ? 4 : Math.max(4, Math.min(rate, 1) * 100);
-            const color =
-              rate === null ? "bg-muted/40" : rate < 0 ? "bg-destructive/60" : "bg-primary/70";
-            return (
+          {(() => {
+            const [min, max] = rateRange(data.points);
+            return data.points.map((p, i) => (
               <div key={i} className="flex flex-1 flex-col items-center gap-1">
                 <div
-                  className={`w-full rounded-sm ${color}`}
-                  style={{ height: `${height}%` }}
-                  title={`${MONTHS[p.month - 1]} ${p.year}: ${pctLabel(rate)}`}
+                  className={`w-full rounded-sm ${barColor(p.savings_rate)}`}
+                  style={{ height: `${barHeightPct(p.savings_rate, min, max)}%` }}
+                  title={`${MONTHS[p.month - 1]} ${p.year}: ${pctLabel(p.savings_rate)}`}
                 />
                 <span className="text-[9px] text-muted-foreground">{MONTHS[p.month - 1]}</span>
               </div>
-            );
-          })}
+            ));
+          })()}
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
