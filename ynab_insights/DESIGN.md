@@ -172,7 +172,17 @@ Eight generators ship today. Three of them (Spending Anomaly, Category
 Drift, Category Projection) lean on `app/snapshot/cycle.py` or its
 trailing-window patterns; the rest stand on their own. Generators that
 don't have a comparison window they trust skip the category rather
-than fire a low-confidence card.
+than fire a low-confidence card. A generator may emit cards of more than
+one `card_type` (the goals generator emits `emergency_fund_coverage`,
+`savings_rate_trend`, or `goal_setup_prompt`) via the optional
+`GeneratedInsight.card_type` override; the orchestrator stamps that onto
+the insight, falling back to the generator's registration slug.
+
+Cycle bands (`app/snapshot/cycle.py`) are contiguous as of v2.6h — the
+old gaps (11-19d biweekly, 46-59d, 131-279d) classified real recurring
+spend as `irregular`. Biweekly now reads as monthly so Spending Anomaly
+evaluates it; the CoV ceiling (0.75) and weekly frequency floor (26/yr)
+are likewise relaxed so lumpy-but-real categories aren't dropped.
 
 - **Subscription Audit** (weekly): cluster recurring same-payee charges
   over a 365-day lookback. v2.6f normalizes payee names (strip case,
@@ -184,14 +194,25 @@ than fire a low-confidence card.
   price change splits into two cards instead of one rejected cluster.
   Minimum 2 occurrences. Per-cadence interval bands are the only
   spacing check: weekly 5-9d, monthly 25-35d, quarterly 75-105d,
-  yearly 335-395d.
+  yearly 335-395d. v2.6h adds a **subscription signal gate** before
+  clustering, so the card surfaces actual subscriptions instead of every
+  recurring charge: a candidate must have a positive signal (a
+  category/group name matching `subscription`/`streaming`/`membership`,
+  or a payee in a curated known-merchant allowlist) AND survive the
+  exclusions (off-budget accounts, all transfer payees on- or off-budget,
+  YNAB bookkeeping payees, and bill/rent/utility/insurance/loan/tax
+  categories). Generic across budgets; no memo fallback (real charges
+  always carry a payee).
 - **Spending Anomaly** (weekly): cycle-aware. Weekly-cycle categories
   compare current week vs trailing 12 weeks; monthly-cycle compare
-  current month vs trailing 12 months. Quarterly/annual/irregular are
-  skipped (Category Drift owns the comparison logic where it applies).
-  Threshold (v2.6g): |z| >= 1.2 AND $30 absolute deviation. `cycle`
-  discriminator in the structured payload tells the frontend which
-  copy to render.
+  current month-to-date vs prior months' **same-day-of-month** windows
+  (v2.6h — comparing partial MTD against full prior months made early-
+  month spend always look low and buried real spikes; same-day windows
+  also keep an unposted recurring charge from reading as an anomalous
+  drop). Quarterly/annual/irregular are skipped (Category Drift owns the
+  comparison logic where it applies). Threshold (v2.6g): |z| >= 1.2 AND
+  $30 absolute deviation. `cycle` discriminator in the structured payload
+  tells the frontend which copy to render.
 - **Cashflow Forecast** (daily): mean daily net over the last 90 days,
   projected 30/60/90 against today's CASH balance only (checking +
   savings + cash account types). Credit-card balances are surfaced as
@@ -211,11 +232,23 @@ than fire a low-confidence card.
   when the 3mo signal is under $20/mo. Skips growing balances (no
   payoff story) and projections > 120 months (10-year+ paydown reads
   as discouraging rather than informative).
-- **Goal Trajectory** (daily): per-goal projection from YNAB's
-  `goal_months_to_budget` + `goal_overall_left`. If the user has no
-  goals configured in YNAB, emits ONE `goal_setup_prompt` card instead
-  (top 5 spending categories as candidate goal targets) so the
-  section never reads as silently empty.
+- **Goals — inferred progress** (daily, v2.6h): the generator (registered
+  as `goal_trajectory`) no longer emits per-category native-goal cards —
+  most users barely configure YNAB targets, so "X% toward your $Y goal"
+  had little to work with. It now derives progress from data always in the
+  snapshot, emitting cards whose own `card_type` is set via
+  `GeneratedInsight.card_type`:
+  - `emergency_fund_coverage` (primary): liquid cash (checking/savings/
+    cash) divided by average monthly spend over the trailing complete
+    months, expressed as months of coverage against a 6-month target.
+  - `savings_rate_trend` (secondary): monthly savings rate
+    `(income - spending) / income` over the trailing 12 complete months,
+    with average, latest, and half-over-half direction.
+  When neither can be computed (no cash/spend history, no income), it
+  falls back to ONE `goal_setup_prompt` card (top 5 spending categories as
+  candidate goal targets) so the Goals surface never reads as silently
+  empty. The `goal_trajectory` card type and renderer remain for backward
+  compatibility but are no longer emitted.
 - **Category Drift** (monthly): comparison kind depends on the
   category's cycle. Monthly/quarterly cycles: trailing 3 months vs prior
   9 months (quarter-over-quarter). Annual cycles with at least 15 months
@@ -228,7 +261,11 @@ than fire a low-confidence card.
   the snapshot spans >= 365 days, quarterly when it spans >= 90 days,
   no card under 90. Window always ends today; the dedup key buckets on
   `(kind, end-month)` so the card refreshes once per month at most.
-  LLM writes the narrative; deterministic fallback paragraph.
+  LLM writes the narrative; deterministic fallback paragraph. Top payees
+  rank by **net** outflow (v2.6h — inflows/refunds offset the matching
+  spend), excluding null-payee transactions (which previously aggregated
+  into one giant "Uncategorized payee"), off-budget transfers, and YNAB
+  bookkeeping payees, mirroring the category rollup's exclusions.
 
 **Fail-closed on LLM steps.** Where deterministic detection has an
 LLM-aided fallback, the LLM-aided step never produces a low-confidence
@@ -248,8 +285,13 @@ default is silent (cached env miss = no-op) so prod logs stay clean.
 Helper lives in `app/insights/diagnostics.py`. Logger name
 `app.insights.diagnostics` makes it easy to filter prod log streams
 without touching the main app logger. Field values must be safe to log
-(no payee names, no raw amounts) — these lines land in stage container
-logs by design.
+(no payee names, no raw amounts) — these lines land in container logs by
+design.
+
+The switch is wired default-on in both stage and prod (v2.6h — prod was
+missing it from the compose env and the deploy env-sync entirely, so diag
+lines never emitted there). Set `LOG_GENERATOR_INTERNALS=false` in an
+env's `.env` to silence it.
 
 ## Rate limits + guardrails
 
