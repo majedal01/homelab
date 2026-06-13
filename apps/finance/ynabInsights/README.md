@@ -17,8 +17,8 @@ FastAPI + Pydantic on the backend, no database. `cachetools.TTLCache` holds sess
 ## Local development
 
 ```bash
-cp apps/finance/deploy/dev/.env.example apps/finance/deploy/dev/.env  # first time only
-docker compose -f apps/finance/deploy/dev/docker-compose.yml up
+cp apps/finance/ynabInsights/deploy/dev/.env.example apps/finance/ynabInsights/deploy/dev/.env  # first time only
+docker compose -f apps/finance/ynabInsights/deploy/dev/docker-compose.yml up
 ```
 
 Frontend at <http://localhost:3000>. FastAPI at <http://localhost:8000>. Both hot-reload on source changes.
@@ -26,7 +26,7 @@ Frontend at <http://localhost:3000>. FastAPI at <http://localhost:8000>. Both ho
 Backend-only loop (no Docker, no frontend):
 
 ```bash
-cd apps/finance
+cd apps/finance/ynabInsights
 pip install -e ".[dev]"
 pytest
 ```
@@ -43,7 +43,7 @@ pytest
 - `frontend/app/welcome/`: onboarding (token entry + budget picker + demo CTA + provider auto-detect).
 - `frontend/app/insights/`, `/explore/`, `/ask/`, `/settings/`.
 
-Design notes (heuristics, thresholds, data model, session lifecycle, rate-limit numbers, provider abstraction, demo) in [`DESIGN.md`](DESIGN.md). Deployment in [`../../docs/deployment.md`](../../docs/deployment.md).
+Design notes (heuristics, thresholds, data model, session lifecycle, rate-limit numbers, provider abstraction, demo) in [`DESIGN.md`](DESIGN.md). Deployment in [`../../../docs/deployment.md`](../../../docs/deployment.md).
 
 ## Operations
 
@@ -51,7 +51,7 @@ Design notes (heuristics, thresholds, data model, session lifecycle, rate-limit 
 
 ```bash
 ssh deploy@<VM>
-cd /home/deploy/stacks/finance/prod  # or stage
+cd /home/deploy/stacks/ynabinsights/prod  # or stage
 docker compose exec app python -c "
 import os, urllib.request
 req = urllib.request.Request(
