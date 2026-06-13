@@ -43,7 +43,7 @@ becomes `ynabinsights` for images, the VM stack folder, and workflow file names.
 | App          | Stage | Prod | Notes                                       |
 | ------------ | ----- | ---- | ------------------------------------------- |
 | ynabInsights | 8001  | 8002 | FastAPI internal-only; Next.js on host port |
-| media        | -     | 8096 | Jellyfin; single env (appliance)            |
+| media/jellyfin | -   | 8096 | Jellyfin; single env (appliance)            |
 
 ## CI/CD
 

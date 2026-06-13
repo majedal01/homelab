@@ -1,0 +1,4 @@
+# Runtime state lives on the VM, never in the repo.
+.env
+config/
+cache/
