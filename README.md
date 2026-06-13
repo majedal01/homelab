@@ -28,7 +28,7 @@ graph TD
 | -------------- | -------------------------------------------------------------- |
 | Infrastructure | Proxmox VE, GL.iNet Beryl AX, Tailscale                        |
 | Compute        | Ubuntu 25.04 VM, Docker, Docker Compose                        |
-| Backend        | Python 3.12, FastAPI 0.110+, Pydantic 2+, PostgreSQL 16        |
+| Backend        | Python 3.12, FastAPI 0.110+, Pydantic 2+ (apps stateless by default) |
 | Frontend       | Next.js 15 (App Router), TypeScript strict, Tailwind, shadcn/ui |
 | Tooling        | Ruff 0.4+, mypy 1.10+ (strict), pytest 8+, hatchling, ESLint   |
 | CI/CD          | GitHub Actions, GitHub Container Registry                      |
