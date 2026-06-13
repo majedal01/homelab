@@ -2,7 +2,7 @@
 
 Provision a dedicated media VM on the Proxmox host, then bring up the Jellyfin MVP. The
 media VM is separate from the app VM that runs ynabInsights. One-time setup; afterwards a
-deploy is just `docker compose pull && up -d` in the stack folder.
+a deploy is `docker compose pull && up -d` in the stack folder.
 
 ## 1. Create the VM (Proxmox web UI, https://100.66.36.86:8006)
 

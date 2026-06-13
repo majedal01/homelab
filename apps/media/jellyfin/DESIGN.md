@@ -2,12 +2,8 @@
 
 ## Why this shape
 
-A polished, self-hosted media platform for me plus friends and family: Jellyfin as the
-server, Infuse as the primary player, with remote access, optional transcoding, user
-management, and an automated request-to-watch pipeline. Rolled out MVP-first so the whole
-shape is proven on one movie before automation is added.
-
-Two facts drive the design:
+Rolled out MVP-first: prove the whole shape on one movie before adding automation. Two
+facts drive the design:
 
 1. It is an **appliance**: off-the-shelf images wired by compose, nothing to build, so the
    platform's "build image -> push -> pull" CI model does not apply. It is deployed by hand
@@ -69,10 +65,3 @@ generates real volume.
 exact pipeline with a step-by-step one-time-config guide. Adapt to the TRaSH single-`/data`
 layout above (it uses separate `/downloads` + `/media`). A VPN sidecar (gluetun) on the
 download client is worth adding for public torrent indexers.
-
-## Phases
-
-1. **MVP** - Jellyfin only; one movie; Infuse over Tailscale; confirm Direct Play. (this scaffold)
-2. **Automation** - add Seerr, Radarr/Sonarr, Prowlarr + FlareSolverr, qBittorrent, Bazarr
-   on the `/data` layout; verify a request lands in the library automatically.
-3. **Polish** - Caddy HTTPS + hardening, QuickSync transcoding, Jellyfin user management.

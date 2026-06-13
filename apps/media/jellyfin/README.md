@@ -40,10 +40,6 @@ Then:
 
 ## Roadmap
 
-- **Phase 2** - the \*arr automation pipeline (Seerr, Radarr/Sonarr, Prowlarr +
-  FlareSolverr, qBittorrent, Bazarr) on the TRaSH single-`/data` hardlink layout.
-- **Phase 3** - public HTTPS for non-Apple/non-technical family (Caddy + `jellyfin.majed.fyi`),
-  Intel QuickSync hardware transcoding, and Jellyfin user management.
-
-Full architecture, the request-to-watch flow, the `/data` layout, remote-access model, and
-the worked reference stack are in [DESIGN.md](DESIGN.md).
+Phase 2 adds the \*arr automation pipeline; Phase 3 adds public HTTPS and hardware
+transcoding. Architecture, the request-to-watch flow, the `/data` layout, the remote-access
+model, and the reference stack are in [DESIGN.md](DESIGN.md).
