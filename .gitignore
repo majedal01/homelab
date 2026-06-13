@@ -1,7 +1,29 @@
+# Secrets and local env (commit .env.example, never the real .env)
 .env
-notes.md
-.claude/
-CLAUDE.md
+.env.*
+!.env.example
+
+# Python
 __pycache__/
 *.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node (frontends also carry their own .gitignore)
+node_modules/
+.next/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+
+# Local scratch, never committed
+notes.md
 scripts/_scratch/
+
+# Claude: track the shared conventions file, ignore local settings
+.claude/*
+!.claude/CLAUDE.md
