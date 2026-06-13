@@ -1,6 +1,6 @@
 services:
   frontend:
-    image: ghcr.io/majedal01/homelab/ynab_insights_frontend:prod-latest
+    image: ghcr.io/majedal01/homelab/finance_frontend:prod-latest
     pull_policy: always
     ports:
       - "8002:3000"
@@ -12,7 +12,7 @@ services:
     restart: unless-stopped
 
   app:
-    image: ghcr.io/majedal01/homelab/ynab_insights:prod-latest
+    image: ghcr.io/majedal01/homelab/finance:prod-latest
     pull_policy: always
     environment:
       APP_ENV: prod

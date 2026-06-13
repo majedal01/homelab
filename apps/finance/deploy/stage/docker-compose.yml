@@ -1,6 +1,6 @@
 services:
   frontend:
-    image: ghcr.io/majedal01/homelab/ynab_insights_frontend:stage-latest
+    image: ghcr.io/majedal01/homelab/finance_frontend:stage-latest
     pull_policy: always
     ports:
       - "8001:3000"
@@ -12,7 +12,7 @@ services:
     restart: unless-stopped
 
   app:
-    image: ghcr.io/majedal01/homelab/ynab_insights:stage-latest
+    image: ghcr.io/majedal01/homelab/finance:stage-latest
     pull_policy: always
     # No host port mapping; only the frontend talks to FastAPI over the
     # compose-internal network at http://app:8000.
