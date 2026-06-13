@@ -4,6 +4,8 @@
 # Usage:
 #   docker compose -f apps/finance/ynabInsights/deploy/dev/docker-compose.yml up
 
+name: ynabinsights-dev
+
 services:
   frontend:
     image: node:22-alpine

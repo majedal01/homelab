@@ -1,3 +1,7 @@
+# Explicit project name so the VM stack is namespaced by app+env, not by the
+# directory basename (which would collide with another app's stage/prod folder).
+name: ynabinsights-prod
+
 services:
   frontend:
     image: ghcr.io/majedal01/homelab/ynabinsights_frontend:prod-latest

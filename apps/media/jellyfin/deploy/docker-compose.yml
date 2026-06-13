@@ -1,0 +1,41 @@
+# Jellyfin media server - MVP (Phase 1).
+#
+# Appliance stack: an off-the-shelf image, nothing to build, single environment.
+# Deployed by hand to the dedicated media VM (NOT via the reusable CI deploy
+# workflow). See ../README.md for bring-up and ../DESIGN.md for the roadmap
+# (the *arr automation pipeline and HTTPS/transcoding land in later phases).
+#
+# Explicit project name so this appliance never collides with another stack's
+# directory-derived project name.
+name: media-jellyfin
+
+services:
+  jellyfin:
+    # Pinned for reproducible deploys; bump deliberately to the current stable tag.
+    image: jellyfin/jellyfin:10.10.7
+    container_name: jellyfin
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      # Deliberate deviation from the platform "localhost-only" rule: Infuse on an
+      # Apple TV cannot SSH-port-forward, so Jellyfin binds all interfaces and is
+      # reached over the tailnet at http://<media-vm-tailnet-ip>:8096. Tailscale
+      # ACLs gate who can connect; nothing is exposed publicly until the Caddy
+      # HTTPS path (Phase 3).
+      - "8096:8096"
+    volumes:
+      - ./config:/config
+      - ./cache:/cache
+      # Unified media root. Phase 2 expands this to the full TRaSH /data tree
+      # (downloads + media on one filesystem) so the *arr stack can hardlink.
+      - /data/media:/data/media
+    environment:
+      TZ: ${TZ:-America/Toronto}
+      # Set once the public HTTPS path exists (Phase 3); leave blank for tailnet-only.
+      JELLYFIN_PublishedServerUrl: ${JELLYFIN_PublishedServerUrl:-}
+    restart: unless-stopped
+    # Phase 3 - Intel QuickSync hardware transcoding via the i5-12600T iGPU.
+    # After passing /dev/dri into the media VM, uncomment:
+    # group_add:
+    #   - "${RENDER_GID:-989}"
+    # devices:
+    #   - /dev/dri:/dev/dri
