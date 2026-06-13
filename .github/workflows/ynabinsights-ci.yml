@@ -1,0 +1,45 @@
+name: ynabInsights CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/finance/ynabInsights/**"
+      - ".github/workflows/ynabinsights-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/finance/ynabInsights/**"
+      - ".github/workflows/ynabinsights-ci.yml"
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/finance/ynabInsights/pyproject.toml
+
+      - name: Install package with dev extras
+        working-directory: apps/finance/ynabInsights
+        run: pip install -e ".[dev]"
+
+      - name: Ruff lint
+        working-directory: apps/finance/ynabInsights
+        run: ruff check .
+
+      - name: Ruff format check
+        working-directory: apps/finance/ynabInsights
+        run: ruff format --check .
+
+      - name: mypy
+        run: mypy --config-file apps/finance/ynabInsights/pyproject.toml apps/finance/ynabInsights
+
+      - name: pytest
+        working-directory: apps/finance/ynabInsights
+        run: pytest

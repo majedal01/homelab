@@ -1,22 +1,22 @@
-name: Finance frontend CI
+name: ynabInsights frontend CI
 
 on:
   pull_request:
     paths:
-      - "apps/finance/frontend/**"
-      - ".github/workflows/finance-frontend-ci.yml"
+      - "apps/finance/ynabInsights/frontend/**"
+      - ".github/workflows/ynabinsights-frontend-ci.yml"
   push:
     branches: [main]
     paths:
-      - "apps/finance/frontend/**"
-      - ".github/workflows/finance-frontend-ci.yml"
+      - "apps/finance/ynabInsights/frontend/**"
+      - ".github/workflows/ynabinsights-frontend-ci.yml"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/finance/frontend
+        working-directory: apps/finance/ynabInsights/frontend
     steps:
       - name: Checkout
         uses: actions/checkout@v4

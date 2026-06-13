@@ -1,10 +1,10 @@
-name: Finance deploy prod
+name: ynabInsights deploy prod
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-prod-finance
+  group: deploy-prod-ynabinsights
   cancel-in-progress: false
 
 jobs:
@@ -14,7 +14,8 @@ jobs:
       packages: write
     uses: ./.github/workflows/deploy.yml
     with:
-      app: finance
+      app: ynabinsights
+      app_dir: finance/ynabInsights
       environment: prod
       port: "8002"
     secrets: inherit

@@ -5,16 +5,23 @@ name: Deploy (reusable)
 # to the VM over Tailscale and smoke-checks /health. Appliance stacks (e.g. media)
 # do not use this; they run off-the-shelf images deployed by hand.
 #
-# Conventions (see docs/CONVENTIONS.md):
+# Conventions (see docs/CONVENTIONS.md): the domain lives only in the repo path.
+# Operational identifiers use the lowercased app leaf.
+#   app_dir     repo path under apps/ (camelCase ok), e.g. finance/ynabInsights
+#   app         lowercased app leaf, e.g. ynabinsights
 #   image       ghcr.io/majedal01/homelab/<app>[_frontend]:<env>-<sha|latest>
-#   compose     apps/<app>/deploy/<env>/docker-compose.yml
+#   compose     apps/<app_dir>/deploy/<env>/docker-compose.yml
 #   VM stack    /home/deploy/stacks/<app>/<env>
 
 on:
   workflow_call:
     inputs:
       app:
-        description: App name; image repo base and VM stack folder.
+        description: Lowercased app leaf; image repo base and VM stack folder.
+        required: true
+        type: string
+      app_dir:
+        description: Repo path under apps/ (build context and compose source).
         required: true
         type: string
       environment:
@@ -49,8 +56,8 @@ jobs:
       - name: Build and push backend image
         uses: docker/build-push-action@v6
         with:
-          context: apps/${{ inputs.app }}
-          file: apps/${{ inputs.app }}/Dockerfile
+          context: apps/${{ inputs.app_dir }}
+          file: apps/${{ inputs.app_dir }}/Dockerfile
           push: true
           tags: |
             ghcr.io/majedal01/homelab/${{ inputs.app }}:${{ inputs.environment }}-${{ github.sha }}
@@ -59,8 +66,8 @@ jobs:
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
-          context: apps/${{ inputs.app }}/frontend
-          file: apps/${{ inputs.app }}/frontend/Dockerfile
+          context: apps/${{ inputs.app_dir }}/frontend
+          file: apps/${{ inputs.app_dir }}/frontend/Dockerfile
           push: true
           tags: |
             ghcr.io/majedal01/homelab/${{ inputs.app }}_frontend:${{ inputs.environment }}-${{ github.sha }}
@@ -88,7 +95,7 @@ jobs:
             "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
             "mkdir -p /home/deploy/stacks/${{ inputs.app }}/${{ inputs.environment }}"
           scp -i ~/.ssh/deploy_key \
-            apps/${{ inputs.app }}/deploy/${{ inputs.environment }}/docker-compose.yml \
+            apps/${{ inputs.app_dir }}/deploy/${{ inputs.environment }}/docker-compose.yml \
             "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}:/home/deploy/stacks/${{ inputs.app }}/${{ inputs.environment }}/docker-compose.yml"
 
       - name: Sync env vars into .env on VM

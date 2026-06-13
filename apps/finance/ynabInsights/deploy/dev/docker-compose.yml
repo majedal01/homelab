@@ -2,7 +2,7 @@
 # No database; user state lives in-process per-session.
 #
 # Usage:
-#   docker compose -f apps/finance/deploy/dev/docker-compose.yml up
+#   docker compose -f apps/finance/ynabInsights/deploy/dev/docker-compose.yml up
 
 services:
   frontend:
