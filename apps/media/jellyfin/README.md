@@ -5,7 +5,9 @@ Self-hosted media server for the homelab, with [Infuse](https://firecore.com/inf
 for everyone else. Goal: a polished library for me plus friends and family, with an
 automated request-to-watch pipeline.
 
-**Status:** scaffolding the MVP (Phase 1). Not yet deployed.
+**Status:** MVP live on the media VM (Jellyfin + Infuse, Direct Play confirmed). Phase 2
+*arr stack (Jellyseerr, Prowlarr + FlareSolverr, Radarr, Sonarr, Bazarr, qBittorrent)
+deployed on the unified `/data`; one-time wiring next.
 
 ## Archetype
 
