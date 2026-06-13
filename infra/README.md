@@ -1,14 +1,12 @@
 # infra
 
-Per-environment Docker Compose stacks.
+Shared, cross-app infrastructure. Anything specific to one app (its Docker Compose
+stacks, Dockerfiles, env examples) now lives with that app under
+[`apps/<app>/deploy/`](../apps/), not here.
 
-| Folder           | Use                                                       |
-| ---------------- | --------------------------------------------------------- |
-| `compose/dev/`   | Local dev: bind-mounted source, hot reload, no ghcr pulls |
-| `compose/stage/` | Stage stack deployed to the VM at port 8001               |
-| `compose/prod/`  | Prod stack deployed to the VM at port 8002                |
+Reserved for platform-wide concerns such as the Cloudflare Tunnel config. The
+reusable deploy workflow lives in [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
+because GitHub requires reusable workflows to sit under `.github/workflows/`.
 
-Each folder owns its `docker-compose.yml` and `.env.example`. On the VM, the
-real `.env` lives next to the compose file and is never committed.
-
-See [`../docs/deployment.md`](../docs/deployment.md) for the CD flow.
+See [`../docs/CONVENTIONS.md`](../docs/CONVENTIONS.md) for naming and namespacing
+rules, and [`../docs/deployment.md`](../docs/deployment.md) for the CD flow.

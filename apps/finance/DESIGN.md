@@ -397,7 +397,7 @@ on the VM:
 
 ```bash
 ssh deploy@<VM>
-cd /home/deploy/stacks/prod  # or stage
+cd /home/deploy/stacks/finance/prod  # or stage
 docker compose exec app python -c "
 import os, urllib.request
 req = urllib.request.Request(
