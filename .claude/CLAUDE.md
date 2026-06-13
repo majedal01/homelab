@@ -9,17 +9,9 @@ practices: trunk-based CI/CD, dev/stage/prod environments, observability,
 infrastructure as code. It should read and run like real infrastructure, not a demo.
 
 ## Layout
-Apps are grouped by domain. A new app is a new directory under its domain; a new area
-is a new domain folder. Nothing else has to move.
-
-- `apps/<domain>/<app>/` — one directory per app (e.g. `apps/finance/ynabInsights`)
-  - `app/` backend, `frontend/` frontend (when present)
-  - `deploy/{dev,stage,prod}/` — per-env `docker-compose.yml` and `.env.example`
-  - `tests/`, `Dockerfile`, `pyproject.toml`, `README.md`, `DESIGN.md`
-- `.github/workflows/` — per-app pipelines (`<app>-ci`, `<app>-deploy-stage`,
-  `<app>-deploy-prod`, plus frontend CI where it applies) that call the reusable `deploy.yml`
-- `docs/` — `CONVENTIONS.md`, `deployment.md`, decision records
-- `infra/` — shared infrastructure notes and config
+Apps live at `apps/<domain>/<app>/`, grouped by domain. A new app is a new directory under
+its domain; a new domain is a new top-level folder. Structure, naming, and namespacing are
+in `docs/CONVENTIONS.md`.
 
 ## Stack (defaults; apps may differ)
 - Backend: Python 3.12+, FastAPI, Pydantic; pytest + httpx; Ruff for lint and format,
@@ -31,17 +23,10 @@ Do not assume a database. State each app's storage choice in its own README; som
 are stateless by design.
 
 ## Deployment
-- Trunk-based. Branch off `main`, open a PR, pass CI, merge. Never push to `main`.
-- Merge to `main` auto-deploys stage. Prod deploys only via the app's manual
-  "deploy-prod" workflow run against `main`. `dev` runs locally from `deploy/dev/`.
-- Stage and prod run as separate Compose stacks on one Tailscale-accessible VM under
-  `/home/deploy/stacks/{stage,prod}`, on adjacent host ports per app.
-- Per-app deploy workflows call the reusable `deploy.yml`: it builds and pushes the app
-  image to ghcr.io, joins the tailnet via Tailscale OAuth, copies the env's compose file
-  to the VM, runs `docker compose pull && up -d`, and confirms with a `/health` check.
-  A new app adds thin `<app>-deploy-stage`/`-prod` workflows that call it; nothing else changes.
-- Each env keeps its own `.env` on the VM, never committed. Secrets live in GitHub
-  Secrets and are injected at deploy. Full detail in `docs/deployment.md`.
+Trunk-based: branch off `main`, open a PR, pass CI, merge. Never push to `main`. Merge
+auto-deploys stage; prod is a manual `deploy-prod` workflow run against `main`; `dev` runs
+locally from `deploy/dev/`. Per-app workflows call the reusable `deploy.yml`. Flow, VM
+layout, and secrets are in `docs/deployment.md`.
 
 ## Commits and PRs
 A commit or PR is written by the developer and documents the change and why it exists.
