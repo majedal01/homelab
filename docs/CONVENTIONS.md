@@ -35,8 +35,13 @@ becomes `ynabinsights` for images, the VM stack folder, and workflow file names.
 | Image (backend)  | `ghcr.io/majedal01/homelab/<app-lower>:<env>-<sha\|latest>`   | `.../ynabinsights:stage-latest`                      |
 | Image (frontend) | `ghcr.io/majedal01/homelab/<app-lower>_frontend:<env>-<...>`  | `.../ynabinsights_frontend:stage-latest`             |
 | VM stack folder  | `/home/deploy/stacks/<app-lower>/<env>`                      | `/home/deploy/stacks/ynabinsights/{stage,prod}`      |
+| Compose project  | top-level `name: <app-lower>-<env>` in each compose          | `ynabinsights-stage`, `ynabinsights-prod`            |
 | Host port        | registered pair per app (see registry)                       | stage 8001, prod 8002                                |
 | Subdomain        | `<name>.majed.fyi`                                           | `ynab.majed.fyi`                                     |
+
+Set the Compose project name explicitly with `name:` in every compose file. Without it,
+Docker Compose derives the project from the stack-directory basename, so two apps' `stage`
+folders would both become project `stage` and clobber each other.
 
 ## Port registry
 
