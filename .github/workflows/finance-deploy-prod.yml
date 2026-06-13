@@ -1,0 +1,20 @@
+name: Finance deploy prod
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod-finance
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/deploy.yml
+    with:
+      app: finance
+      environment: prod
+      port: "8002"
+    secrets: inherit
