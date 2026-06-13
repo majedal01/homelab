@@ -35,9 +35,11 @@ graph TD
 
 ## Pipeline
 
-1. Feature branch off `main`, push, open a PR. [CI](.github/workflows/ci.yml) runs Ruff, mypy strict, and pytest on every PR.
-2. Merge into `main`. [Stage deploy](.github/workflows/deploy-stage.yml) fires automatically: build, push to ghcr.io, scp + ssh deploy over Tailscale, smoke-check `/health` on :8001. Stage is always whatever main is.
-3. Promote to prod via manual [prod deploy](.github/workflows/deploy-prod.yml) from the Actions UI. Same flow, deploys to :8002.
+1. Feature branch off `main`, push, open a PR. Per-app CI (e.g. [ynabInsights CI](.github/workflows/ynabinsights-ci.yml)) runs Ruff, mypy strict, and pytest on PRs that touch the app.
+2. Merge into `main`. The app's stage deploy (e.g. [ynabInsights deploy stage](.github/workflows/ynabinsights-deploy-stage.yml)) fires automatically: build, push to ghcr.io, scp + ssh deploy over Tailscale, smoke-check `/health` on :8001. Stage is always whatever main is.
+3. Promote to prod via the manual per-app prod deploy (e.g. [ynabInsights deploy prod](.github/workflows/ynabinsights-deploy-prod.yml)) from the Actions UI. Same flow, deploys to :8002.
+
+Deploy mechanics are shared in the reusable [`deploy.yml`](.github/workflows/deploy.yml) (`workflow_call`); each app's deploy is a thin caller. Naming and namespacing rules are in [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md).
 
 Full design in [`docs/deployment.md`](docs/deployment.md).
 
@@ -51,27 +53,27 @@ An AI financial coach that lives alongside YNAB. Try the demo without signing up
 
 The app surfaces a feed of forward-looking cards (subscriptions, spending anomalies, cashflow forecasts, category projections, debt payoff, goal trajectories, category drift, year/quarter retrospectives). An agent (`Ask`) answers natural-language follow-ups via your provider's tool-use API. FastAPI + Next.js.
 
-- Source: [`ynab_insights/`](ynab_insights/)
-- Design notes: [`ynab_insights/DESIGN.md`](ynab_insights/DESIGN.md)
-- Screenshots: [`ynab_insights/screenshots/`](ynab_insights/screenshots/)
+- Source: [`apps/finance/ynabInsights/`](apps/finance/ynabInsights/)
+- Design notes: [`apps/finance/ynabInsights/DESIGN.md`](apps/finance/ynabInsights/DESIGN.md)
+- Screenshots: [`apps/finance/ynabInsights/screenshots/`](apps/finance/ynabInsights/screenshots/)
 
 ## Repo structure
 
-Monorepo. Platform-wide concerns (infra, CD, cross-cutting docs) live at the root; everything specific to a hosted app lives inside that app's folder.
+Monorepo. Apps live at `apps/<domain>/<app>/`, each a self-contained folder that owns its code, deploy manifests, and docs. Domain folders group related apps and hold no code themselves. Shared concerns live at the root. Naming and namespacing rules are in [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md).
 
-- [`ynab_insights/`](ynab_insights/): YNAB Insights app. FastAPI backend ([`ynab_insights/app/`](ynab_insights/app/)), Next.js frontend ([`ynab_insights/frontend/`](ynab_insights/frontend/)), tests, Dockerfiles, app-specific design notes ([`DESIGN.md`](ynab_insights/DESIGN.md)).
-- [`infra/compose/`](infra/compose/): per-environment Docker Compose stacks (`dev`, `stage`, `prod`). Platform-level: knows how to assemble app containers into a deployable stack.
-- [`docs/`](docs/): platform docs ([`deployment.md`](docs/deployment.md)). App-specific design notes live in their app folder.
-- [`.github/workflows/`](.github/workflows/): CI and CD pipelines.
+- [`apps/finance/`](apps/finance/): finance domain. Holds the [`ynabInsights`](apps/finance/ynabInsights/) app (YNAB Insights): FastAPI backend ([`app/`](apps/finance/ynabInsights/app/)), Next.js frontend ([`frontend/`](apps/finance/ynabInsights/frontend/)), tests, Dockerfiles, per-env compose ([`deploy/`](apps/finance/ynabInsights/deploy/)), design notes ([`DESIGN.md`](apps/finance/ynabInsights/DESIGN.md)).
+- [`infra/`](infra/): shared, cross-app infrastructure (tunnel config and the like).
+- [`docs/`](docs/): platform docs ([`deployment.md`](docs/deployment.md), [`CONVENTIONS.md`](docs/CONVENTIONS.md)).
+- [`.github/workflows/`](.github/workflows/): per-app CI plus the reusable deploy workflow.
 
 ## Local development
 
 ```bash
 git clone git@github.com:majedal01/homelab.git
 cd homelab
-cp infra/compose/dev/.env.example infra/compose/dev/.env
+cp apps/finance/ynabInsights/deploy/dev/.env.example apps/finance/ynabInsights/deploy/dev/.env
 # Fill in optional YNAB_TOKEN, ANTHROPIC_API_KEY if you want sync/ask working.
-docker compose -f infra/compose/dev/docker-compose.yml up
+docker compose -f apps/finance/ynabInsights/deploy/dev/docker-compose.yml up
 ```
 
 Frontend at `http://localhost:3000`, FastAPI at `http://localhost:8000`. Both hot-reload on source changes. Deployment details in [`docs/deployment.md`](docs/deployment.md).

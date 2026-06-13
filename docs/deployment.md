@@ -15,20 +15,22 @@ Work flows: feature branch -> PR into `main` (CI gates). On merge, stage auto-de
 
 Both stage and prod run on the same Ubuntu VM, reached over Tailscale. They are fully separated as distinct Docker Compose stacks:
 
-| Env   | Stack folder on VM             | App port |
-| ----- | ------------------------------ | -------- |
-| stage | `/home/deploy/stacks/stage`    | 8001     |
-| prod  | `/home/deploy/stacks/prod`     | 8002     |
+| Env   | Stack folder on VM                  | App port |
+| ----- | ----------------------------------- | -------- |
+| stage | `/home/deploy/stacks/ynabinsights/stage` | 8001     |
+| prod  | `/home/deploy/stacks/ynabinsights/prod`  | 8002     |
 
-Each stack has its own `.env` file (managed manually on the VM, never committed) and its own Postgres container with a named volume, so a stage outage cannot touch prod data.
+Stack folders are namespaced by app (`/home/deploy/stacks/<app>/<env>`) so apps never collide; see [`CONVENTIONS.md`](CONVENTIONS.md). Each stack has its own `.env` file (managed manually on the VM, never committed), so a stage outage cannot touch prod data.
 
 ## Deploy flow (stage)
 
+The `ynabInsights deploy stage` workflow is a thin caller of the reusable [`deploy.yml`](../.github/workflows/deploy.yml), which:
+
 1. GitHub Actions runner checks out the repo.
-2. Builds the `ynab_insights` image from its Dockerfile.
-3. Pushes the image to `ghcr.io/majedal01/homelab/ynab_insights` with tags `stage-<sha>` and `stage-latest`, authenticated via the workflow's `GITHUB_TOKEN`.
+2. Builds the `ynabinsights` backend and `ynabinsights_frontend` images from their Dockerfiles.
+3. Pushes them to `ghcr.io/majedal01/homelab/ynabinsights` and `.../ynabinsights_frontend` with tags `stage-<sha>` and `stage-latest`, authenticated via the workflow's `GITHUB_TOKEN`.
 4. Joins the tailnet using the Tailscale GitHub Action with the OAuth credentials, tagged `tag:ci`.
-5. `scp` the env-specific compose file to `/home/deploy/stacks/stage/` on the VM.
+5. `scp` the env-specific compose file to `/home/deploy/stacks/ynabinsights/stage/` on the VM.
 6. SSH into the VM and run `docker compose pull && docker compose up -d` in that folder. `APP_VERSION` is exported inline as the commit SHA so the running container reports the deployed version.
 7. Smoke check: SSH into the VM and `curl http://localhost:8001/health` to confirm the app responds.
 
@@ -38,7 +40,7 @@ Identical to the stage flow above, with these differences:
 
 - Triggered manually via `workflow_dispatch` from the Actions UI, run against `main`.
 - Image tags: `prod-<sha>` and `prod-latest`.
-- Compose stack at `/home/deploy/stacks/prod` on the VM.
+- Compose stack at `/home/deploy/stacks/ynabinsights/prod` on the VM.
 - Smoke check hits `http://localhost:8002/health`.
 
 ## Secrets

@@ -1,0 +1,26 @@
+name: ynabInsights deploy stage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/finance/ynabInsights/**"
+      - ".github/workflows/ynabinsights-deploy-stage.yml"
+      - ".github/workflows/deploy.yml"
+
+concurrency:
+  group: deploy-stage-ynabinsights
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/deploy.yml
+    with:
+      app: ynabinsights
+      app_dir: finance/ynabInsights
+      environment: stage
+      port: "8001"
+    secrets: inherit
