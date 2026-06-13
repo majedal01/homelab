@@ -39,7 +39,7 @@ pytest
 - `app/insights/`: generator framework plus one module per card type. Each generator auto-registers on import.
 - `app/demo/`: deterministic snapshot + hand-written insights for the no-key demo path.
 - `app/agent/`: streaming agent loop with per-request key + provider. 20-tool-call cap, 60s wall-clock cap.
-- `app/observability.py`: Prometheus counters + gauges, exposed at `GET /metrics` behind `X-Admin-Token`. Not public — the Cloudflare Tunnel only routes to Next.js, which has no `/metrics` route. Scrape from inside the VM (see "Operations" below).
+- `app/observability.py`: Prometheus counters + gauges, exposed at `GET /metrics` behind `X-Admin-Token`. Not public: the Cloudflare Tunnel only routes to Next.js, which has no `/metrics` route. Read them from inside the VM (Operations, below).
 - `frontend/app/welcome/`: onboarding (token entry + budget picker + demo CTA + provider auto-detect).
 - `frontend/app/insights/`, `/explore/`, `/ask/`, `/settings/`.
 
