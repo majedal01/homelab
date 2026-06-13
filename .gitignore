@@ -12,18 +12,18 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Node (frontends also carry their own .gitignore)
+# Node
 node_modules/
 .next/
 
-# OS and editor noise
+# OS
 .DS_Store
 Thumbs.db
 
-# Local scratch, never committed
+# Local scratch
 notes.md
 scripts/_scratch/
 
-# Claude: track the shared conventions file, ignore local settings
+# Claude
 .claude/*
 !.claude/CLAUDE.md
