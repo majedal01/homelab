@@ -17,8 +17,8 @@ never in the repo.
 
 ## MVP (Phase 1): one movie, in Infuse, over Tailscale
 
-Prerequisite: a media VM on the Proxmox host, on the tailnet, with Docker, a `deploy`
-user, and a unified `/data` disk (see [DESIGN.md](DESIGN.md)).
+Prerequisite: a media VM on the Proxmox host (Docker, a `deploy` user, Tailscale, a unified
+`/data` disk). Full provisioning + first-deploy walkthrough in [SETUP.md](SETUP.md).
 
 ```bash
 # On the media VM, in the stack folder (e.g. /home/deploy/stacks/jellyfin):
