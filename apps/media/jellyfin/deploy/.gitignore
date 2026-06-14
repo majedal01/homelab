@@ -2,3 +2,10 @@
 .env
 config/
 cache/
+jellyseerr/
+prowlarr/
+radarr/
+sonarr/
+bazarr/
+qbittorrent/
+sabnzbd/

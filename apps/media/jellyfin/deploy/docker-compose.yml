@@ -1,9 +1,15 @@
-# Jellyfin media server - MVP (Phase 1).
+# Jellyfin media stack. Appliance: off-the-shelf images, nothing to build, single
+# environment, deployed by hand to the dedicated media VM (NOT via the reusable CI
+# deploy workflow). See ../README.md for bring-up and ../DESIGN.md for the design.
 #
-# Appliance stack: an off-the-shelf image, nothing to build, single environment.
-# Deployed by hand to the dedicated media VM (NOT via the reusable CI deploy
-# workflow). See ../README.md for bring-up and ../DESIGN.md for the roadmap
-# (the *arr automation pipeline and HTTPS/transcoding land in later phases).
+# Request-to-watch pipeline: Jellyseerr -> Radarr/Sonarr -> Prowlarr (+ FlareSolverr)
+# -> qBittorrent -> Bazarr -> Jellyfin, all sharing the single /data root so imports
+# hardlink instead of copy.
+#
+# Admin UIs (Prowlarr, FlareSolverr, Radarr, Sonarr, Bazarr, qBittorrent) bind to
+# localhost on the VM; reach them with an SSH port-forward. Jellyfin (8096) and
+# Jellyseerr (5055) bind all interfaces for tailnet access. The *arr images use
+# `latest`; pin to a known-good tag once the stack is configured and stable.
 #
 # Explicit project name so this appliance never collides with another stack's
 # directory-derived project name.
@@ -25,8 +31,7 @@ services:
     volumes:
       - ./config:/config
       - ./cache:/cache
-      # Unified media root. Phase 2 expands this to the full TRaSH /data tree
-      # (downloads + media on one filesystem) so the *arr stack can hardlink.
+      # Reads the library under /data/media; the *arr apps write here over /data.
       - /data/media:/data/media
     environment:
       TZ: ${TZ:-America/Toronto}
@@ -39,3 +44,148 @@ services:
     #   - "${RENDER_GID:-989}"
     # devices:
     #   - /dev/dri:/dev/dri
+
+  jellyseerr:
+    # Request UI. Browse and request; routes to Radarr/Sonarr, reads users from Jellyfin.
+    image: fallenbagel/jellyseerr:latest
+    container_name: jellyseerr
+    ports:
+      - "5055:5055"
+    volumes:
+      - ./jellyseerr:/app/config
+    environment:
+      TZ: ${TZ:-America/Toronto}
+      LOG_LEVEL: info
+    restart: unless-stopped
+
+  prowlarr:
+    # Indexer manager; syncs indexers to Radarr/Sonarr.
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    ports:
+      - "127.0.0.1:9696:9696"
+    volumes:
+      - ./prowlarr:/config
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-America/Toronto}
+    restart: unless-stopped
+
+  flaresolverr:
+    # Solves Cloudflare challenges for protected indexers; Prowlarr points at it.
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    ports:
+      - "127.0.0.1:8191:8191"
+    environment:
+      TZ: ${TZ:-America/Toronto}
+      LOG_LEVEL: info
+    restart: unless-stopped
+
+  radarr:
+    # Movie automation.
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    ports:
+      - "127.0.0.1:7878:7878"
+    volumes:
+      - ./radarr:/config
+      - /data:/data
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-America/Toronto}
+    restart: unless-stopped
+
+  sonarr:
+    # TV automation.
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    ports:
+      - "127.0.0.1:8989:8989"
+    volumes:
+      - ./sonarr:/config
+      - /data:/data
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-America/Toronto}
+    restart: unless-stopped
+
+  bazarr:
+    # Subtitle automation for the Radarr/Sonarr libraries.
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    ports:
+      - "127.0.0.1:6767:6767"
+    volumes:
+      - ./bazarr:/config
+      - /data:/data
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-America/Toronto}
+    restart: unless-stopped
+
+  sabnzbd:
+    # Usenet download client. No VPN needed (direct, encrypted provider connection, no
+    # swarm). Downloads to /data/usenet so Radarr/Sonarr hardlink-import into /data/media.
+    # Configure the Newshosting server + credentials in the SABnzbd UI; they stay on the VM.
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    ports:
+      - "127.0.0.1:8085:8080"
+    volumes:
+      - ./sabnzbd:/config
+      - /data:/data
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-America/Toronto}
+    restart: unless-stopped
+
+  gluetun:
+    # VPN gateway (Private Internet Access). qBittorrent runs inside this network
+    # namespace, so all its traffic exits through the tunnel; if the tunnel drops,
+    # gluetun's firewall blocks everything (kill switch) and qBittorrent cannot leak the
+    # home IP. PIA credentials live in .env (OPENVPN_USER / OPENVPN_PASSWORD), never
+    # committed. qBittorrent's ports are published here because it shares this namespace.
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "127.0.0.1:8080:8080"   # qBittorrent WebUI (localhost; reach via SSH forward)
+      - "6881:6881"             # qBittorrent peer port
+      - "6881:6881/udp"
+    environment:
+      VPN_SERVICE_PROVIDER: private internet access
+      # PIA supports OpenVPN in gluetun (not WireGuard, which is Mullvad/Proton/etc. only).
+      VPN_TYPE: openvpn
+      OPENVPN_USER: ${OPENVPN_USER:?PIA username required in .env}
+      OPENVPN_PASSWORD: ${OPENVPN_PASSWORD:?PIA password required in .env}
+      SERVER_REGIONS: ${VPN_REGION:-CA Toronto}
+      TZ: ${TZ:-America/Toronto}
+    restart: unless-stopped
+
+  qbittorrent:
+    # Download client. Routes all traffic through the gluetun VPN gateway (no own
+    # network); reached by Radarr/Sonarr at gluetun:8080 on the compose network.
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    volumes:
+      - ./qbittorrent:/config
+      - /data:/data
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-America/Toronto}
+      WEBUI_PORT: 8080
+    restart: unless-stopped
