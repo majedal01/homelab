@@ -1,0 +1,13 @@
+jellyfin.majed.fyi {
+	reverse_proxy jellyfin:8096
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+}
+
+jellyseerr.majed.fyi {
+	reverse_proxy jellyseerr:5055
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+}

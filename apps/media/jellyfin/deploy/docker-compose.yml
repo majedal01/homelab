@@ -45,6 +45,26 @@ services:
     # devices:
     #   - /dev/dri:/dev/dri
 
+  caddy:
+    # Public HTTPS reverse proxy (Phase 3). Exposes ONLY Jellyfin + Jellyseerr to the
+    # internet via the router's 443 port-forward; the *arr apps stay private. Let's
+    # Encrypt certs come from the Cloudflare DNS-01 challenge (CLOUDFLARE_API_TOKEN in
+    # .env), and the DNS records are grey-cloud (DNS-only) so media streams straight
+    # here, not through Cloudflare's CDN. Routes are in ./caddy/Caddyfile.
+    image: ghcr.io/caddybuilds/caddy-cloudflare:latest
+    container_name: caddy
+    ports:
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+    environment:
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?Cloudflare token required in .env}
+      TZ: ${TZ:-America/Toronto}
+    restart: unless-stopped
+
   jellyseerr:
     # Request UI. Browse and request; routes to Radarr/Sonarr, reads users from Jellyfin.
     image: fallenbagel/jellyseerr:latest

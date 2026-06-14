@@ -9,3 +9,5 @@ sonarr/
 bazarr/
 qbittorrent/
 sabnzbd/
+caddy/data/
+caddy/config/
