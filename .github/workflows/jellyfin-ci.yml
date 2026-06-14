@@ -1,0 +1,46 @@
+name: jellyfin ci
+
+# Validate the media appliance's declarative config on PRs. It is deployed by hand
+# (see jellyfin-deploy.yml) from off-the-shelf images, so there is nothing to build,
+# this only checks the compose file and Caddyfile parse. Dummy values satisfy the
+# required (:?) vars; the checks are structural and contact nothing.
+
+on:
+  pull_request:
+    paths:
+      - "apps/media/jellyfin/**"
+      - ".github/workflows/jellyfin-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/media/jellyfin/**"
+      - ".github/workflows/jellyfin-ci.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/media/jellyfin/deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate compose
+        env:
+          MEDIA_DOMAIN: example.com
+          CLOUDFLARE_API_TOKEN: dummy
+          OPENVPN_USER: dummy
+          OPENVPN_PASSWORD: dummy
+        run: docker compose config -q
+
+      - name: Validate Caddyfile
+        env:
+          MEDIA_DOMAIN: example.com
+          CLOUDFLARE_API_TOKEN: dummy
+        run: |
+          docker run --rm --entrypoint caddy \
+            -e MEDIA_DOMAIN -e CLOUDFLARE_API_TOKEN \
+            -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            ghcr.io/caddybuilds/caddy-cloudflare:latest \
+            validate --adapter caddyfile --config /etc/caddy/Caddyfile
