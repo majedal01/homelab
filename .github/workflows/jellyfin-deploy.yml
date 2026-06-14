@@ -43,14 +43,12 @@ jobs:
       - name: Add VM to known_hosts
         run: ssh-keyscan -H "${{ secrets.MEDIA_VM_HOSTNAME }}" >> ~/.ssh/known_hosts
 
-      - name: Sync compose and Caddyfile to VM
+      - name: Sync compose to VM
         run: |
           DEST="${{ secrets.VM_DEPLOY_USER }}@${{ secrets.MEDIA_VM_HOSTNAME }}"
-          ssh -i ~/.ssh/deploy_key "$DEST" "mkdir -p $STACK/caddy"
+          ssh -i ~/.ssh/deploy_key "$DEST" "mkdir -p $STACK"
           scp -i ~/.ssh/deploy_key \
             apps/media/jellyfin/deploy/docker-compose.yml "$DEST:$STACK/docker-compose.yml"
-          scp -i ~/.ssh/deploy_key \
-            apps/media/jellyfin/deploy/caddy/Caddyfile "$DEST:$STACK/caddy/Caddyfile"
 
       - name: Pull images and restart stack
         run: |

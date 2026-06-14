@@ -28,21 +28,6 @@ jobs:
 
       - name: Validate compose
         env:
-          MEDIA_DOMAIN: example.com
-          CLOUDFLARE_API_TOKEN: dummy
           OPENVPN_USER: dummy
           OPENVPN_PASSWORD: dummy
-        run: docker compose config -q
-
-      - name: Validate Caddyfile
-        # adapt (Caddyfile -> JSON) checks syntax without provisioning the TLS/ACME
-        # modules, so it does not need a real Cloudflare token. {env.*} stays a runtime
-        # placeholder; {$MEDIA_DOMAIN} is substituted at load, so set a dummy domain.
-        env:
-          MEDIA_DOMAIN: example.com
-        run: |
-          docker run --rm --entrypoint caddy \
-            -e MEDIA_DOMAIN \
-            -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            ghcr.io/caddybuilds/caddy-cloudflare:latest \
-            adapt --adapter caddyfile --config /etc/caddy/Caddyfile > /dev/null
+        run: docker compose config -q > /dev/null
