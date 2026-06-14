@@ -1,0 +1,71 @@
+name: jellyfin deploy
+
+# Manual deploy for the media appliance. Unlike the reusable deploy.yml (which builds
+# and pushes images), this only syncs the committed compose + Caddyfile to the media VM
+# and restarts the stack from off-the-shelf images. The VM's .env (PUID/PGID, PIA,
+# Cloudflare token, MEDIA_DOMAIN) is managed by hand on the VM and never touched here.
+#
+# Secrets: TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET, SSH_DEPLOY_KEY, VM_DEPLOY_USER are
+# shared with the app-VM deploy; MEDIA_VM_HOSTNAME is the media VM's tailnet address
+# and is the only one to add. The deploy key is already authorized on the media VM.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-jellyfin
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      STACK: /home/deploy/stacks/jellyfin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Join tailnet
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Write SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Add VM to known_hosts
+        run: ssh-keyscan -H "${{ secrets.MEDIA_VM_HOSTNAME }}" >> ~/.ssh/known_hosts
+
+      - name: Sync compose and Caddyfile to VM
+        run: |
+          DEST="${{ secrets.VM_DEPLOY_USER }}@${{ secrets.MEDIA_VM_HOSTNAME }}"
+          ssh -i ~/.ssh/deploy_key "$DEST" "mkdir -p $STACK/caddy"
+          scp -i ~/.ssh/deploy_key \
+            apps/media/jellyfin/deploy/docker-compose.yml "$DEST:$STACK/docker-compose.yml"
+          scp -i ~/.ssh/deploy_key \
+            apps/media/jellyfin/deploy/caddy/Caddyfile "$DEST:$STACK/caddy/Caddyfile"
+
+      - name: Pull images and restart stack
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.MEDIA_VM_HOSTNAME }}" \
+            "cd $STACK && docker compose pull && docker compose up -d --remove-orphans"
+
+      - name: Smoke check Jellyfin
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.MEDIA_VM_HOSTNAME }}" \
+            "curl --fail --max-time 10 --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8096/health"
+
+      - name: Prune dangling images
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.MEDIA_VM_HOSTNAME }}" \
+            "docker image prune -af"
