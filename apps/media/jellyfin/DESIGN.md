@@ -23,7 +23,7 @@ i5-12600T **QuickSync** iGPU covers in Phase 3 (pass `/dev/dri` into the VM, ena
 
 - **Now:** Tailscale. Jellyfin binds the VM's tailnet interface; Infuse and other clients
   connect over the tailnet. Zero public exposure.
-- **Later (Phase 3):** Caddy reverse-proxy at `jellyfin.majed.fyi` with a Let's Encrypt cert
+- **Later (Phase 3):** Caddy reverse-proxy at `jellyfin.<your-domain>` with a Let's Encrypt cert
   via the Cloudflare DNS-01 challenge and a DNS-only (grey-cloud) record, so traffic flows
   directly to the house, bypassing Cloudflare's CDN (which is why the existing Cloudflare
   Tunnel cannot serve media). Only Jellyfin (and optionally Seerr) is ever exposed; the

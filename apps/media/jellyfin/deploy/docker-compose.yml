@@ -61,6 +61,7 @@ services:
       - ./caddy/data:/data
       - ./caddy/config:/config
     environment:
+      MEDIA_DOMAIN: ${MEDIA_DOMAIN:?set MEDIA_DOMAIN in .env, e.g. example.com}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?Cloudflare token required in .env}
       TZ: ${TZ:-America/Toronto}
     restart: unless-stopped
