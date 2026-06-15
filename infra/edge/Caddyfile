@@ -8,9 +8,11 @@
 # Only expose what should be public; admin UIs stay tailnet-only.
 
 jellyfin.majed.fyi {
+	encode zstd gzip
 	reverse_proxy 100.84.50.127:8096
 }
 
 jellyseerr.majed.fyi {
+	encode zstd gzip
 	reverse_proxy 100.84.50.127:5055
 }
