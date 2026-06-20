@@ -54,15 +54,14 @@ An AI financial coach that lives alongside YNAB. Try the demo without signing up
 The app surfaces a feed of forward-looking cards (subscriptions, spending anomalies, cashflow forecasts, category projections, debt payoff, goal trajectories, category drift, year/quarter retrospectives). An agent (`Ask`) answers natural-language follow-ups via your provider's tool-use API. FastAPI + Next.js.
 
 - Source: [`apps/finance/ynabInsights/`](apps/finance/ynabInsights/)
-- Design notes: [`apps/finance/ynabInsights/DESIGN.md`](apps/finance/ynabInsights/DESIGN.md)
 - Screenshots: [`apps/finance/ynabInsights/screenshots/`](apps/finance/ynabInsights/screenshots/)
 
 ## Repo structure
 
 Monorepo. Apps live at `apps/<domain>/<app>/`, each a self-contained folder that owns its code, deploy manifests, and docs. Domain folders group related apps and hold no code themselves. Shared concerns live at the root. Naming and namespacing rules are in [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md).
 
-- [`apps/finance/`](apps/finance/): finance domain. Holds the [`ynabInsights`](apps/finance/ynabInsights/) app (YNAB Insights): FastAPI backend ([`app/`](apps/finance/ynabInsights/app/)), Next.js frontend ([`frontend/`](apps/finance/ynabInsights/frontend/)), tests, Dockerfiles, per-env compose ([`deploy/`](apps/finance/ynabInsights/deploy/)), design notes ([`DESIGN.md`](apps/finance/ynabInsights/DESIGN.md)).
-- [`apps/media/`](apps/media/): media domain. Holds the [`jellyfin`](apps/media/jellyfin/) appliance stack (Jellyfin + *arr), deployed by hand to a dedicated media VM.
+- [`apps/finance/`](apps/finance/): finance domain. Holds the [`ynabInsights`](apps/finance/ynabInsights/) app (YNAB Insights): FastAPI backend ([`app/`](apps/finance/ynabInsights/app/)), Next.js frontend ([`frontend/`](apps/finance/ynabInsights/frontend/)), tests, Dockerfiles, per-env compose ([`deploy/`](apps/finance/ynabInsights/deploy/)).
+- [`apps/media/`](apps/media/): media domain. Holds the [`jellyfin`](apps/media/jellyfin/) appliance stack (Jellyfin + *arr), deployed by to a dedicated media VM.
 - [`infra/`](infra/): shared, cross-app infrastructure (tunnel config and the like).
 - [`docs/`](docs/): platform docs ([`deployment.md`](docs/deployment.md), [`CONVENTIONS.md`](docs/CONVENTIONS.md)).
 - [`.github/workflows/`](.github/workflows/): per-app CI plus the reusable deploy workflow.
