@@ -1,14 +1,5 @@
 name: jellyfin deploy
 
-# Manual deploy for the media appliance. Unlike the reusable deploy.yml (which builds
-# and pushes images), this only syncs the committed compose + Caddyfile to the media VM
-# and restarts the stack from off-the-shelf images. The VM's .env (PUID/PGID, PIA,
-# Cloudflare token, MEDIA_DOMAIN) is managed by hand on the VM and never touched here.
-#
-# Secrets: TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET, SSH_DEPLOY_KEY, VM_DEPLOY_USER are
-# shared with the app-VM deploy; MEDIA_VM_HOSTNAME is the media VM's tailnet address
-# and is the only one to add. The deploy key is already authorized on the media VM.
-
 on:
   workflow_dispatch:
 

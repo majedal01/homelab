@@ -1,10 +1,5 @@
 name: jellyfin ci
 
-# Validate the media appliance's declarative config on PRs. It is deployed by hand
-# (see jellyfin-deploy.yml) from off-the-shelf images, so there is nothing to build,
-# this only checks the compose file and Caddyfile parse. Dummy values satisfy the
-# required (:?) vars; the checks are structural and contact nothing.
-
 on:
   pull_request:
     paths:
