@@ -35,15 +35,14 @@ services:
       - /data/media:/data/media
     environment:
       TZ: ${TZ:-America/Toronto}
-      # Set once the public HTTPS path exists (Phase 3); leave blank for tailnet-only.
-      JELLYFIN_PublishedServerUrl: ${JELLYFIN_PublishedServerUrl:-}
     restart: unless-stopped
-    # Phase 3 - Intel QuickSync hardware transcoding via the i5-12600T iGPU.
-    # After passing /dev/dri into the media VM, uncomment:
-    # group_add:
-    #   - "${RENDER_GID:-989}"
-    # devices:
-    #   - /dev/dri:/dev/dri
+    # Intel QuickSync hardware transcoding via the i5-12600T iGPU passed through to this
+    # VM (Proxmox vfio passthrough). RENDER_GID is the guest's `render` group GID
+    # (getent group render); set it in .env.
+    group_add:
+      - "${RENDER_GID:-989}"
+    devices:
+      - /dev/dri:/dev/dri
 
   jellyseerr:
     # Request UI. Browse and request; routes to Radarr/Sonarr, reads users from Jellyfin.
