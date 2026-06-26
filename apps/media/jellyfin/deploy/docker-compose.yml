@@ -144,45 +144,60 @@ services:
       TZ: ${TZ:-America/Toronto}
     restart: unless-stopped
 
-  gluetun:
-    # VPN gateway (Private Internet Access). qBittorrent runs inside this network
-    # namespace, so all its traffic exits through the tunnel; if the tunnel drops,
-    # gluetun's firewall blocks everything (kill switch) and qBittorrent cannot leak the
-    # home IP. PIA credentials live in .env (OPENVPN_USER / OPENVPN_PASSWORD), never
-    # committed. qBittorrent's ports are published here because it shares this namespace.
-    image: qmcgaw/gluetun:latest
-    container_name: gluetun
+  wireguard:
+    # VPN gateway (PIA over WireGuard). qBittorrent shares this network namespace, so all
+    # its traffic exits through the tunnel; FIREWALL=1 is a kill switch that blocks
+    # everything if the tunnel drops, so qBittorrent can never leak the home IP. PIA
+    # credentials live in .env (OPENVPN_USER / OPENVPN_PASSWORD), never committed.
+    # WireGuard replaced OpenVPN here: PIA OpenVPN capped a single stream at ~15 KB/s vs
+    # ~2 MB/s on WireGuard. gluetun cannot do PIA WireGuard (OpenVPN only for PIA), so this
+    # dedicated image provisions it from the PIA API. qBittorrent's WebUI port is published
+    # here because it shares this namespace.
+    image: thrnz/docker-wireguard-pia
+    container_name: wireguard
     cap_add:
       - NET_ADMIN
+      - SYS_MODULE
     devices:
       - /dev/net/tun:/dev/net/tun
+    volumes:
+      - /lib/modules:/lib/modules:ro
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
     ports:
       - "127.0.0.1:8080:8080"   # qBittorrent WebUI (localhost; reach via SSH forward)
-      - "6881:6881"             # qBittorrent peer port
-      - "6881:6881/udp"
     environment:
-      VPN_SERVICE_PROVIDER: private internet access
-      # PIA supports OpenVPN in gluetun (not WireGuard, which is Mullvad/Proton/etc. only).
-      VPN_TYPE: openvpn
-      OPENVPN_USER: ${OPENVPN_USER:?PIA username required in .env}
-      OPENVPN_PASSWORD: ${OPENVPN_PASSWORD:?PIA password required in .env}
-      SERVER_REGIONS: ${VPN_REGION:-CA Toronto}
+      USER: ${OPENVPN_USER:?PIA username required in .env}
+      PASS: ${OPENVPN_PASSWORD:?PIA password required in .env}
+      # PIA region id in thrnz format (ca_toronto / ca_montreal / ...); must support PF.
+      LOC: ${VPN_LOC:-ca_toronto}
+      # Let the compose subnet reach the WebUI through the kill-switch firewall.
+      LOCAL_NETWORK: 172.18.0.0/16
       # PIA port forwarding: gives qBittorrent an inbound port so peers can connect and
-      # downloads do not stall. gluetun requests a port and writes it to
-      # /tmp/gluetun/forwarded_port; the qbit-port-sync host timer pushes it into
-      # qBittorrent's listen port (PIA reassigns it on reconnect). Toronto supports PF.
-      VPN_PORT_FORWARDING: "on"
+      # downloads do not stall. thrnz writes the assigned port to /pia-shared/port.dat;
+      # the qbit-port-sync host timer pushes it into qBittorrent's listen port.
+      PORT_FORWARDING: "1"
+      PORT_PERSIST: "1"
+      FIREWALL: "1"
+      KEEPALIVE: "25"
       TZ: ${TZ:-America/Toronto}
+    healthcheck:
+      # Healthy once the tunnel is up and PIA has assigned a forwarded port.
+      test: ["CMD-SHELL", "test -s /pia-shared/port.dat"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
     restart: unless-stopped
 
   qbittorrent:
-    # Download client. Routes all traffic through the gluetun VPN gateway (no own
-    # network); reached by Radarr/Sonarr at gluetun:8080 on the compose network.
+    # Download client. Routes all traffic through the WireGuard VPN gateway (no own
+    # network); reached by Radarr/Sonarr at wireguard:8080 on the compose network.
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
-    network_mode: "service:gluetun"
+    network_mode: "service:wireguard"
     depends_on:
-      gluetun:
+      wireguard:
         condition: service_healthy
     volumes:
       - ./qbittorrent:/config
