@@ -167,6 +167,11 @@ services:
       OPENVPN_USER: ${OPENVPN_USER:?PIA username required in .env}
       OPENVPN_PASSWORD: ${OPENVPN_PASSWORD:?PIA password required in .env}
       SERVER_REGIONS: ${VPN_REGION:-CA Toronto}
+      # PIA port forwarding: gives qBittorrent an inbound port so peers can connect and
+      # downloads do not stall. gluetun requests a port and writes it to
+      # /tmp/gluetun/forwarded_port; the qbit-port-sync host timer pushes it into
+      # qBittorrent's listen port (PIA reassigns it on reconnect). Toronto supports PF.
+      VPN_PORT_FORWARDING: "on"
       TZ: ${TZ:-America/Toronto}
     restart: unless-stopped
 
