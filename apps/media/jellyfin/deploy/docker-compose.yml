@@ -17,7 +17,10 @@ name: media-jellyfin
 services:
   jellyfin:
     # Pinned for reproducible deploys; bump deliberately to the current stable tag.
-    image: jellyfin/jellyfin:10.10.7
+    # 12.0 migrates the database one way, so back up ./config before bumping. It also
+    # turns off legacy client auth; EnableLegacyAuthorization is set back to true in
+    # config/config/system.xml until Wholphin ships its 12.0 SDK update.
+    image: jellyfin/jellyfin:12.0
     container_name: jellyfin
     user: "${PUID:-1000}:${PGID:-1000}"
     ports:
