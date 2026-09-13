@@ -48,7 +48,12 @@ services:
 
   jellyseerr:
     # Request UI. Browse and request; routes to Radarr/Sonarr, reads users from Jellyfin.
-    image: fallenbagel/jellyseerr:latest
+    # Seerr is the successor to Jellyseerr and migrates its config on first start. The
+    # service keeps the jellyseerr name so infra/edge/Caddyfile resolves unchanged. The
+    # image runs as `node` (UID 1000) without an init process, so ./jellyseerr must be
+    # owned by 1000:1000 and init is enabled here.
+    image: ghcr.io/seerr-team/seerr:latest
+    init: true
     container_name: jellyseerr
     ports:
       - "5055:5055"
