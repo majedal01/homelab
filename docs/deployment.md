@@ -1,58 +1,62 @@
-# Deployment
+# deployment
 
-## Branching strategy
+Trunk-based. One long-lived branch, `main`. Feature branch, PR, CI, merge. Merge
+deploys stage; prod is a manual run of the same workflow against `main`.
 
-Trunk-based. One long-lived branch (`main`); no environment branches.
+## the reusable workflow
 
-| Environment | Trigger                                  |
-| ----------- | ---------------------------------------- |
-| stage       | Auto on every push to `main`             |
-| prod        | Manual `workflow_dispatch` against `main` |
+`.github/workflows/deploy.yml` does one thing: put a compose file on a VM and bring the
+stack up. It joins the tailnet, copies the file to `/home/deploy/stacks/<stack>/`,
+optionally writes env lines and logs in to ghcr.io, runs `docker compose pull && up -d
+--remove-orphans`, curls a health URL, and prunes dangling images. It builds nothing.
 
-Work flows: feature branch -> PR into `main` (CI gates). On merge, stage auto-deploys whatever main now is. Prod waits for a manual trigger; running the `Deploy prod` workflow from the Actions UI deploys whatever main currently is. The manual trigger is the intentional human gate before a prod deploy.
+| Input | Meaning |
+| --- | --- |
+| `stack` | Folder under `/home/deploy/stacks`, e.g. `jellyfin` or `ynabinsights/stage` |
+| `compose_file` | Path in the caller's checkout |
+| `health_url` | Curled on the VM after `up`, with retries |
+| `version` | Exported as `APP_VERSION`; defaults to the commit SHA |
 
-## Hosting
+| Secret | Meaning |
+| --- | --- |
+| `ssh_key` | Private key for the `deploy` user on the VM |
+| `vm_hostname` | Tailnet name of the VM |
+| `vm_user` | `deploy` |
+| `ts_oauth_client_id`, `ts_oauth_secret` | Tailscale OAuth client tagged `tag:ci` |
+| `registry_token` | Optional. `GITHUB_TOKEN` if the images are private |
+| `env_lines` | Optional. `KEY=VALUE` lines upserted into the stack's `.env` |
 
-Both stage and prod run on the same Ubuntu VM, reached over Tailscale. They are fully separated as distinct Docker Compose stacks:
+Secrets are passed explicitly, never inherited, so one caller can target the media VM
+and another the finance VM with the same workflow.
 
-| Env   | Stack folder on VM                  | App port |
-| ----- | ----------------------------------- | -------- |
-| stage | `/home/deploy/stacks/ynabinsights/stage` | 8001     |
-| prod  | `/home/deploy/stacks/ynabinsights/prod`  | 8002     |
+## calling it from an application repo
 
-Stack folders are namespaced by app (`/home/deploy/stacks/<app>/<env>`) so apps never collide; see [`CONVENTIONS.md`](CONVENTIONS.md). Each stack has its own `.env` file (managed manually on the VM, never committed), so a stage outage cannot touch prod data.
+Build and push images in a job of your own, then:
 
-## Deploy flow (stage)
+```yaml
+deploy:
+  needs: build
+  uses: majedal01/homelab/.github/workflows/deploy.yml@main
+  with:
+    stack: myapp/stage
+    compose_file: deploy/stage/docker-compose.yml
+    health_url: http://localhost:8001/health
+  secrets:
+    ssh_key: ${{ secrets.SSH_DEPLOY_KEY }}
+    vm_hostname: ${{ secrets.VM_HOSTNAME }}
+    vm_user: ${{ secrets.VM_DEPLOY_USER }}
+    ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+    ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+    registry_token: ${{ secrets.GITHUB_TOKEN }}
+```
 
-The `ynabInsights deploy stage` workflow is a thin caller of the reusable [`deploy.yml`](../.github/workflows/deploy.yml), which:
+The calling repo needs `SSH_DEPLOY_KEY`, `VM_HOSTNAME`, `VM_DEPLOY_USER`,
+`TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` as Actions secrets. This is a personal
+account, so they are set per repo. The stack's `.env` on the VM holds app secrets and is
+managed by hand; anything CI must rotate goes through `env_lines`.
 
-1. GitHub Actions runner checks out the repo.
-2. Builds the `ynabinsights` backend and `ynabinsights_frontend` images from their Dockerfiles.
-3. Pushes them to `ghcr.io/majedal01/homelab/ynabinsights` and `.../ynabinsights_frontend` with tags `stage-<sha>` and `stage-latest`, authenticated via the workflow's `GITHUB_TOKEN`.
-4. Joins the tailnet using the Tailscale GitHub Action with the OAuth credentials, tagged `tag:ci`.
-5. `scp` the env-specific compose file to `/home/deploy/stacks/ynabinsights/stage/` on the VM.
-6. SSH into the VM and run `docker compose pull && docker compose up -d` in that folder. `APP_VERSION` is exported inline as the commit SHA so the running container reports the deployed version.
-7. Smoke check: SSH into the VM and `curl http://localhost:8001/health` to confirm the app responds.
+## what is not automated
 
-## Deploy flow (prod)
-
-Identical to the stage flow above, with these differences:
-
-- Triggered manually via `workflow_dispatch` from the Actions UI, run against `main`.
-- Image tags: `prod-<sha>` and `prod-latest`.
-- Compose stack at `/home/deploy/stacks/ynabinsights/prod` on the VM.
-- Smoke check hits `http://localhost:8002/health`.
-
-## Secrets
-
-All set as GitHub Actions repository secrets:
-
-| Secret                | Purpose                                                  |
-| --------------------- | -------------------------------------------------------- |
-| `SSH_DEPLOY_KEY`      | Private key for the `deploy` user on the VM             |
-| `VM_HOSTNAME`         | Tailscale hostname of the VM (e.g. `100-ubuntu`)        |
-| `VM_DEPLOY_USER`      | Login user on the VM (`deploy`)                          |
-| `TS_OAUTH_CLIENT_ID`  | Tailscale OAuth client ID for the runner to join tailnet |
-| `TS_OAUTH_SECRET`     | Tailscale OAuth client secret                            |
-
-`GITHUB_TOKEN` is provided automatically by Actions and is used to authenticate `docker push` against `ghcr.io`.
+Host-level config under `hosts/<host>/` is pushed with that host's `apply.sh` from a
+workstation on the tailnet. The Proxmox host is configured by hand; `hosts/proxmox` is
+the record. personal-finance is the worked example of an application repo.
