@@ -1,0 +1,6 @@
+[Unit]
+Description=Pull the media VM app state into local backup storage
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/media-state-pull.sh
