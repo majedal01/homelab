@@ -1,128 +1,105 @@
-name: Deploy (reusable)
+name: deploy
+
+# Reusable: copy a compose file to a VM over Tailscale, pull, restart, smoke check.
+# Image builds belong to the caller. Callers map their own VM secrets so one
+# workflow serves every host.
 
 on:
   workflow_call:
     inputs:
-      app:
-        description: Lowercased app leaf; image repo base and VM stack folder.
+      stack:
+        description: Folder under /home/deploy/stacks on the VM (e.g. jellyfin, ynabinsights/stage).
         required: true
         type: string
-      app_dir:
-        description: Repo path under apps/ (build context and compose source).
+      compose_file:
+        description: Compose file in the caller's checkout.
         required: true
         type: string
-      environment:
-        description: Target environment (stage or prod).
+      health_url:
+        description: URL curled on the VM after the stack is up.
         required: true
         type: string
-      port:
-        description: Host port to smoke-check /health against.
-        required: true
+      version:
+        description: Exported as APP_VERSION for compose.
+        required: false
         type: string
+        default: ""
+    secrets:
+      ssh_key:
+        required: true
+      vm_hostname:
+        required: true
+      vm_user:
+        required: true
+      ts_oauth_client_id:
+        required: true
+      ts_oauth_secret:
+        required: true
+      registry_token:
+        description: Token for ghcr.io if the images are private.
+        required: false
+      env_lines:
+        description: KEY=VALUE lines written into the stack's .env, replacing existing keys.
+        required: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
+    env:
+      STACK: /home/deploy/stacks/${{ inputs.stack }}
+      TARGET: ${{ secrets.vm_user }}@${{ secrets.vm_hostname }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v4
+      - uses: tailscale/github-action@v2
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build and push backend image
-        uses: docker/build-push-action@v7
-        with:
-          context: apps/${{ inputs.app_dir }}
-          file: apps/${{ inputs.app_dir }}/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/majedal01/homelab/${{ inputs.app }}:${{ inputs.environment }}-${{ github.sha }}
-            ghcr.io/majedal01/homelab/${{ inputs.app }}:${{ inputs.environment }}-latest
-
-      - name: Build and push frontend image
-        uses: docker/build-push-action@v7
-        with:
-          context: apps/${{ inputs.app_dir }}/frontend
-          file: apps/${{ inputs.app_dir }}/frontend/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/majedal01/homelab/${{ inputs.app }}_frontend:${{ inputs.environment }}-${{ github.sha }}
-            ghcr.io/majedal01/homelab/${{ inputs.app }}_frontend:${{ inputs.environment }}-latest
-
-      - name: Join tailnet
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ secrets.ts_oauth_client_id }}
+          oauth-secret: ${{ secrets.ts_oauth_secret }}
           tags: tag:ci
 
-      - name: Write SSH key
+      - name: SSH setup
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "${{ secrets.ssh_key }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.vm_hostname }}" >> ~/.ssh/known_hosts
+          printf 'Host *\n  IdentityFile ~/.ssh/deploy_key\n' > ~/.ssh/config
 
-      - name: Add VM to known_hosts
-        run: ssh-keyscan -H "${{ secrets.VM_HOSTNAME }}" >> ~/.ssh/known_hosts
-
-      - name: Copy compose file to VM
+      - name: Copy compose file
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
-            "mkdir -p /home/deploy/stacks/${{ inputs.app }}/${{ inputs.environment }}"
-          scp -i ~/.ssh/deploy_key \
-            apps/${{ inputs.app_dir }}/deploy/${{ inputs.environment }}/docker-compose.yml \
-            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}:/home/deploy/stacks/${{ inputs.app }}/${{ inputs.environment }}/docker-compose.yml"
+          ssh "$TARGET" "mkdir -p '$STACK'"
+          scp "${{ inputs.compose_file }}" "$TARGET:$STACK/docker-compose.yml"
 
-      - name: Sync env vars into .env on VM
-        # Platform env vars for the FastAPI app, persisted across deploys.
-        # - REQUIRE_PROXY_HEADERS / LOG_GENERATOR_INTERNALS: idempotent, set if missing.
-        # - METRICS_ADMIN_TOKEN: rotated via GitHub Secrets, always replaced; /metrics
-        #   404s gracefully when unset.
-        # SESSION_SECRET_KEY and other app secrets are managed by hand on the VM and are
-        # not touched here, so the env's .env must already exist with them.
+      - name: Write env lines
+        if: ${{ secrets.env_lines != '' }}
         env:
-          ADMIN_TOKEN: ${{ secrets.METRICS_ADMIN_TOKEN }}
+          ENV_LINES: ${{ secrets.env_lines }}
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
-            "cd /home/deploy/stacks/${{ inputs.app }}/${{ inputs.environment }} && \
-             touch .env && \
-             grep -q '^REQUIRE_PROXY_HEADERS=' .env || echo 'REQUIRE_PROXY_HEADERS=true' >> .env && \
-             grep -q '^LOG_GENERATOR_INTERNALS=' .env || echo 'LOG_GENERATOR_INTERNALS=true' >> .env && \
-             sed -i '/^METRICS_ADMIN_TOKEN=/d' .env && \
-             printf 'METRICS_ADMIN_TOKEN=%s\n' '${ADMIN_TOKEN}' >> .env"
+          printf '%s\n' "$ENV_LINES" > env.new
+          scp env.new "$TARGET:$STACK/.env.new"
+          ssh "$TARGET" bash -s "$STACK" <<'EOF'
+          cd "$1" && touch .env
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            sed -i "/^${line%%=*}=/d" .env
+            printf '%s\n' "$line" >> .env
+          done < .env.new
+          rm .env.new
+          EOF
 
-      - name: Pull image and restart stack
-        # --remove-orphans kills containers for services dropped from the compose file
-        # so deleted services do not keep running and consuming memory.
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
-            "cd /home/deploy/stacks/${{ inputs.app }}/${{ inputs.environment }} && \
-             export APP_VERSION=${{ github.sha }} && \
-             docker compose pull && \
-             docker compose up -d --remove-orphans"
+      - name: Registry login
+        if: ${{ secrets.registry_token != '' }}
+        env:
+          TOKEN: ${{ secrets.registry_token }}
+        run: printf '%s' "$TOKEN" | ssh "$TARGET" "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
 
-      - name: Smoke check /health
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
-            "curl --fail --max-time 10 --retry 30 --retry-delay 2 --retry-all-errors http://localhost:${{ inputs.port }}/health"
+      - name: Pull and restart
+        run: ssh "$TARGET" "cd '$STACK' && export APP_VERSION='${{ inputs.version || github.sha }}' && docker compose pull && docker compose up -d --remove-orphans"
+
+      - name: Smoke check
+        run: ssh "$TARGET" "curl --fail --max-time 10 --retry 30 --retry-delay 2 --retry-all-errors '${{ inputs.health_url }}'"
 
       - name: Prune dangling images
-        run: |
-          ssh -i ~/.ssh/deploy_key \
-            "${{ secrets.VM_DEPLOY_USER }}@${{ secrets.VM_HOSTNAME }}" \
-            "docker image prune -af"
+        run: ssh "$TARGET" "docker image prune -af"

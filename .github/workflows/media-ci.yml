@@ -1,0 +1,22 @@
+name: media ci
+
+on:
+  pull_request:
+    paths:
+      - "hosts/media/**"
+      - ".github/workflows/media-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "hosts/media/**"
+      - ".github/workflows/media-ci.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hosts/media
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker compose config -q > /dev/null
