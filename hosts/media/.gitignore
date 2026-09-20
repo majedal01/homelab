@@ -8,3 +8,10 @@ radarr/
 sonarr/
 bazarr/
 sabnzbd/
+
+# recyclarr runtime
+recyclarr/secrets.yml
+recyclarr/logs/
+recyclarr/state/
+recyclarr/resources/
+recyclarr/includes/

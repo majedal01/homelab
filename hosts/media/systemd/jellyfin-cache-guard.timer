@@ -1,0 +1,8 @@
+[Unit]
+Description=Guard media VM disk space every 20 min
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=20min
+Persistent=true
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,5 @@
+[Unit]
+Description=Reclaim media VM disk if low (Jellyfin transcode cache)
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/jellyfin-cache-guard.sh

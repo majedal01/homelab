@@ -1,0 +1,11 @@
+[Unit]
+Description=Ensure iGPU render node (heal i915 after a kernel upgrade)
+Wants=network-online.target
+After=network-online.target
+Before=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ensure-i915.sh
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
