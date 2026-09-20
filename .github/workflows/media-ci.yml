@@ -20,6 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: docker compose config -q > /dev/null
-          env:
-            RADARR_API_KEY: dummy
-            SONARR_API_KEY: dummy
+        env:
+          RADARR_API_KEY: dummy
+          SONARR_API_KEY: dummy
