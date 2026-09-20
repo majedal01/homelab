@@ -1,0 +1,22 @@
+name: media deploy
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-media
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy.yml
+    with:
+      stack: jellyfin
+      compose_file: hosts/media/docker-compose.yml
+      health_url: http://localhost:8096/health
+    secrets:
+      ssh_key: ${{ secrets.SSH_DEPLOY_KEY }}
+      vm_hostname: ${{ secrets.MEDIA_VM_HOSTNAME }}
+      vm_user: ${{ secrets.VM_DEPLOY_USER }}
+      ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
