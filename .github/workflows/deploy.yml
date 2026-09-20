@@ -50,6 +50,8 @@ jobs:
     env:
       STACK: /home/deploy/stacks/${{ inputs.stack }}
       TARGET: ${{ secrets.vm_user }}@${{ secrets.vm_hostname }}
+      ENV_LINES: ${{ secrets.env_lines }}
+      REGISTRY_TOKEN: ${{ secrets.registry_token }}
     steps:
       - uses: actions/checkout@v5
 
@@ -73,9 +75,7 @@ jobs:
           scp "${{ inputs.compose_file }}" "$TARGET:$STACK/docker-compose.yml"
 
       - name: Write env lines
-        if: ${{ secrets.env_lines != '' }}
-        env:
-          ENV_LINES: ${{ secrets.env_lines }}
+        if: ${{ env.ENV_LINES != '' }}
         run: |
           printf '%s\n' "$ENV_LINES" > env.new
           scp env.new "$TARGET:$STACK/.env.new"
@@ -90,10 +90,8 @@ jobs:
           EOF
 
       - name: Registry login
-        if: ${{ secrets.registry_token != '' }}
-        env:
-          TOKEN: ${{ secrets.registry_token }}
-        run: printf '%s' "$TOKEN" | ssh "$TARGET" "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+        if: ${{ env.REGISTRY_TOKEN != '' }}
+        run: printf '%s' "$REGISTRY_TOKEN" | ssh "$TARGET" "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
 
       - name: Pull and restart
         run: ssh "$TARGET" "cd '$STACK' && export APP_VERSION='${{ inputs.version || github.sha }}' && docker compose pull && docker compose up -d --remove-orphans"
