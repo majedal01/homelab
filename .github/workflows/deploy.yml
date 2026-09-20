@@ -47,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read
     env:
       STACK: /home/deploy/stacks/${{ inputs.stack }}
       TARGET: ${{ secrets.vm_user }}@${{ secrets.vm_hostname }}
@@ -94,7 +95,9 @@ jobs:
         run: printf '%s' "$REGISTRY_TOKEN" | ssh "$TARGET" "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
 
       - name: Pull and restart
-        run: ssh "$TARGET" "cd '$STACK' && export APP_VERSION='${{ inputs.version || github.sha }}' && docker compose pull && docker compose up -d --remove-orphans"
+        # Registries rate-limit bursts of layer pulls; retry the pull before giving up.
+        run: |
+          ssh "$TARGET" "cd '$STACK' && for i in 1 2 3; do docker compose pull && break || sleep 20; done &&             export APP_VERSION='${{ inputs.version || github.sha }}' && docker compose up -d --remove-orphans"
 
       - name: Smoke check
         run: ssh "$TARGET" "curl --fail --max-time 10 --retry 30 --retry-delay 2 --retry-all-errors '${{ inputs.health_url }}'"
